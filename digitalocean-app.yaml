@@ -1,0 +1,34 @@
+name: signalhire-callback
+region: nyc
+
+services:
+  - name: callback
+    github:
+      repo: vanman2024/Mcp-Servers
+      branch: main
+      deploy_on_push: true
+
+    source_dir: signalhire
+    dockerfile_path: Dockerfile.callback
+
+    http_port: 8000
+
+    instance_count: 1
+    instance_size_slug: basic-xxs
+
+    envs:
+      - key: HOST
+        value: "0.0.0.0"
+      - key: PORT
+        value: "8000"
+
+    health_check:
+      http_path: /health
+      initial_delay_seconds: 20
+      period_seconds: 10
+      timeout_seconds: 5
+      success_threshold: 1
+      failure_threshold: 3
+
+    routes:
+      - path: /
