@@ -33,20 +33,6 @@ from lib.contact_cache import ContactCache
 from lib.config import load_config
 from models.person_callback import PersonCallbackItem
 
-# Optional: Import Mem0 and Supabase if available
-try:
-    from mem0 import MemoryClient
-    HAS_MEM0 = True
-except ImportError:
-    HAS_MEM0 = False
-
-try:
-    from supabase import create_client, Client as SupabaseClient
-    HAS_SUPABASE = True
-except ImportError:
-    HAS_SUPABASE = False
-
-
 # =============================================================================
 # Server Configuration & Initialization
 # =============================================================================
@@ -57,8 +43,6 @@ class AppState:
     client: SignalHireClient | None = None
     callback_server: CallbackServer | None = None
     cache: ContactCache | None = None
-    mem0_client: MemoryClient | None = None
-    supabase_client: SupabaseClient | None = None
 
 state = AppState()
 
@@ -113,17 +97,6 @@ async def lifespan():
 
     # Initialize contact cache
     state.cache = ContactCache()
-
-    # Initialize Mem0 if available
-    if HAS_MEM0 and os.getenv("MEM0_API_KEY"):
-        state.mem0_client = MemoryClient(api_key=os.getenv("MEM0_API_KEY"))
-
-    # Initialize Supabase if available
-    if HAS_SUPABASE and os.getenv("SUPABASE_URL") and os.getenv("SUPABASE_KEY"):
-        state.supabase_client = create_client(
-            os.getenv("SUPABASE_URL"),
-            os.getenv("SUPABASE_KEY")
-        )
 
     print("✅ SignalHire MCP Server started successfully")
 
