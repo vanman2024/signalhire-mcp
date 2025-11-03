@@ -77,8 +77,7 @@ async def lifespan(app):
     # Initialize SignalHire client
     state.client = SignalHireClient(
         api_key=config.signalhire.api_key,
-        base_url=config.signalhire.api_base_url,
-        api_prefix=config.signalhire.api_prefix
+        base_url=config.signalhire.base_url
     )
     await state.client.start_session()
 
