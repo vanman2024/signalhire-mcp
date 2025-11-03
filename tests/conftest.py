@@ -12,7 +12,7 @@ from unittest.mock import Mock, AsyncMock, patch
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # Set up test environment variables before any imports
-os.environ["SIGNALHIRE_API_KEY"] = "test_api_key_202.R6cmAKCaf7FHPPstzfP2Vnh5XOBo"
+os.environ["SIGNALHIRE_API_KEY"] = "test_fake_api_key_for_testing_only"
 os.environ["EXTERNAL_CALLBACK_URL"] = "https://test-callback.example.com/webhook"
 
 from fastmcp import FastMCP

@@ -23,8 +23,10 @@ services:
     # Environment variables
     envs:
       - key: SIGNALHIRE_API_KEY
-        value: "202.R6cmAKCaf7FHPPstzfP2Vnh5XOBo"
         scope: RUN_TIME
+        type: SECRET
+        # CRITICAL: Set this in DigitalOcean App Platform UI
+        # NEVER hardcode secrets in this file
 
       - key: HOST
         value: "0.0.0.0"

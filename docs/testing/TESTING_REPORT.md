@@ -366,7 +366,7 @@ Comprehensive test suite created for the SignalHire MCP server with **127 test c
 ### Environment Configuration (5 test cases)
 
 - ✅ .env file exists
-- ✅ SIGNALHIRE_API_KEY configured: `202.R6cmAKCaf7FHPPstzfP2Vnh5XOBo`
+- ✅ SIGNALHIRE_API_KEY configured: `••••••••••` (redacted for security)
 - ✅ EXTERNAL_CALLBACK_URL configured (DigitalOcean mode)
 - ✅ Optional variables handled gracefully (MEM0, Supabase)
 - ✅ .env.example documentation present
@@ -670,10 +670,11 @@ raise ValueError(f"Contact {uid} not found in cache")
 
 ### API Key Management
 
-- **Storage:** `.env` file in server directory
-- **Format:** `SIGNALHIRE_API_KEY=202.R6cmAKCaf7FHPPstzfP2Vnh5XOBo`
+- **Storage:** `.env` file in server directory (NEVER commit to git)
+- **Format:** `SIGNALHIRE_API_KEY=your_api_key_here`
 - **Validation:** Required for server startup
 - **Rotation:** Easy to update by editing .env
+- **Security:** Use GitHub Secrets for CI/CD, DigitalOcean secrets for deployment
 
 ### Callback Server Security
 

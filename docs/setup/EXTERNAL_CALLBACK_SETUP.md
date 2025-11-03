@@ -32,8 +32,8 @@ https://signalhire-callback-xxxxx.ondigitalocean.app/signalhire/callback
 Edit `/home/gotime2022/Projects/Mcp-Servers/signalhire/.env`:
 
 ```bash
-# Your SignalHire API Key
-SIGNALHIRE_API_KEY=202.R6cmAKCaf7FHPPstzfP2Vnh5XOBo
+# Your SignalHire API Key (GET THIS FROM SIGNALHIRE DASHBOARD)
+SIGNALHIRE_API_KEY=your_actual_api_key_here
 
 # Your DigitalOcean callback server URL
 EXTERNAL_CALLBACK_URL=https://your-actual-callback-server.com/signalhire/callback
