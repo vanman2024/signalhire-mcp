@@ -17,7 +17,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, Field, root_validator, validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 try:
     from pydantic_settings import BaseSettings
@@ -57,7 +57,7 @@ class SignalHireConfig(BaseModel):
         "https://www.signalhire.com", description="SignalHire base URL"
     )
 
-    @validator('email')
+    @field_validator('email')
     @classmethod
     def validate_email(cls, v):
         if v and '@' not in v:
@@ -74,7 +74,7 @@ class CallbackServerConfig(BaseModel):
         None, description="External host for webhook URLs"
     )
 
-    @validator('port')
+    @field_validator('port')
     @classmethod
     def validate_port(cls, v):
         if not 1 <= v <= 65535:
@@ -128,7 +128,7 @@ class ExportConfig(BaseModel):
         "%Y%m%d_%H%M%S", description="Timestamp format for filenames"
     )
 
-    @validator('output_dir')
+    @field_validator('output_dir')
     @classmethod
     def create_output_dir(cls, v):
         v.mkdir(parents=True, exist_ok=True)
@@ -167,7 +167,7 @@ class Config(BaseSettings):
         case_sensitive = False
         extra = "ignore"  # Allow extra environment variables
 
-    @root_validator(pre=True)
+    @model_validator(mode='before')
     @classmethod
     def load_signalhire_credentials(cls, values):
         """Load SignalHire credentials from environment."""
@@ -180,7 +180,7 @@ class Config(BaseSettings):
                 values['signalhire'] = signalhire_config
         return values
 
-    @validator('environment', pre=True)
+    @field_validator('environment', mode='before')
     @classmethod
     def parse_environment(cls, v):
         if isinstance(v, str):
