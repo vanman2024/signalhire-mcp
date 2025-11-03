@@ -66,7 +66,7 @@ def get_callback_url() -> str:
 
 
 @asynccontextmanager
-async def lifespan():
+async def lifespan(app):
     """Server lifecycle management (FastMCP 2.x pattern)"""
     # ===== STARTUP =====
     print("🚀 Starting SignalHire MCP Server...")
