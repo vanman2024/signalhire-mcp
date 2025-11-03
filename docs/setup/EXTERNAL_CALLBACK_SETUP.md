@@ -32,7 +32,7 @@ https://signalhire-callback-xxxxx.ondigitalocean.app/signalhire/callback
 Edit `/home/gotime2022/Projects/Mcp-Servers/signalhire/.env`:
 
 ```bash
-# Your SignalHire API Key (GET THIS FROM SIGNALHIRE DASHBOARD)
+# Your SignalHire API Key (GET THIS FROM YOUR SIGNALHIRE DASHBOARD)
 SIGNALHIRE_API_KEY=your_actual_api_key_here
 
 # Your DigitalOcean callback server URL
@@ -52,7 +52,7 @@ python3 test_configuration.py
 
 You should see:
 ```
-✅ API Key configured: 202.R6cmAK...
+✅ API Key configured: ••••••••••...
 ✅ External callback URL configured:
    https://your-actual-callback-server.com/signalhire/callback
 ℹ️  Local callback server will NOT be started

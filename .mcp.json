@@ -1,9 +1,0 @@
-{
-  "$schema": "https://gofastmcp.com/public/schemas/fastmcp.json/v1.json",
-  "mcpServers": {
-    "signalhire": {
-      "command": ".venv/bin/python",
-      "args": ["server.py"]
-    }
-  }
-}

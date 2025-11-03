@@ -3,10 +3,29 @@
 # ============================================
 # SECURITY: Environment Variables & Secrets
 # ============================================
+# CRITICAL: Never commit API keys or secrets!
 .env
 .env.local
 .env.production
+.env.development
+.env.test
 *.env
+!.env.example
+!.env.template
+
+# API Keys and Secrets
+*secret*
+*credential*
+*.key
+*.pem
+*.p12
+*.pfx
+
+# Configuration with secrets
+config.local.*
+secrets.json
+secrets.yaml
+.secrets/
 
 # ============================================
 # Python
