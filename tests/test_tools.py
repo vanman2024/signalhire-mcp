@@ -308,7 +308,7 @@ class TestWorkflowTools:
         """Test getting search query suggestions"""
         result = await mcp_client.call_tool(
             "get_search_suggestions",
-            {"partial_query": "Python Developer"}
+            {"query": "Python Developer"}
         )
 
         assert "items" in result  # wrapper wraps list as {"items": [...]}

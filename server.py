@@ -300,6 +300,10 @@ async def batch_reveal_contacts(
     Automatically splits into 100-item chunks and handles rate limiting.
     Returns request_id for tracking. Use get_request_status() to monitor progress.
     """
+    # MCP clients may send list as JSON string — parse if needed
+    if isinstance(identifiers, str):
+        identifiers = json.loads(identifiers)
+
     if len(identifiers) > 100:
         await ctx.warning(f"Batch size {len(identifiers)} exceeds 100 - will be split automatically")
 
@@ -569,7 +573,7 @@ async def export_results(
 
 @mcp.tool
 async def get_search_suggestions(
-    partial_query: Annotated[str, Field(description="Partial search query")],
+    query: Annotated[str, Field(description="Partial search query to get suggestions for")],
     ctx: Context = None
 ) -> list[str]:
     """
@@ -578,27 +582,27 @@ async def get_search_suggestions(
     Analyzes partial query and suggests Boolean operators, filters, and common patterns.
     Helps users construct effective search queries.
     """
-    await ctx.info(f"Generating suggestions for: {partial_query}")
+    await ctx.info(f"Generating suggestions for: {query}")
 
     suggestions = []
 
     # Basic Boolean suggestions
-    if "and" not in partial_query.lower():
-        suggestions.append(f"{partial_query} AND Python")
-        suggestions.append(f"{partial_query} AND (AWS OR Azure)")
+    if "and" not in query.lower():
+        suggestions.append(f"{query} AND Python")
+        suggestions.append(f"{query} AND (AWS OR Azure)")
 
     # Location suggestions
-    if not any(loc in partial_query.lower() for loc in ["san francisco", "new york", "remote"]):
-        suggestions.append(f"{partial_query} in San Francisco")
-        suggestions.append(f"{partial_query} (Remote)")
+    if not any(loc in query.lower() for loc in ["san francisco", "new york", "remote"]):
+        suggestions.append(f"{query} in San Francisco")
+        suggestions.append(f"{query} (Remote)")
 
     # Experience level suggestions
-    suggestions.append(f"Senior {partial_query}")
-    suggestions.append(f"{partial_query} with 5+ years")
+    suggestions.append(f"Senior {query}")
+    suggestions.append(f"{query} with 5+ years")
 
     # Company type suggestions
-    suggestions.append(f"{partial_query} at (Google OR Amazon OR Microsoft)")
-    suggestions.append(f"{partial_query} at Startup")
+    suggestions.append(f"{query} at (Google OR Amazon OR Microsoft)")
+    suggestions.append(f"{query} at Startup")
 
     return suggestions[:10]
 

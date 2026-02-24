@@ -317,11 +317,11 @@ class TestConfigurationValidation:
             # Should specify version 3.x
             assert "3." in content or ">=3" in content
 
-    def test_mcp_json_exists(self):
-        """Verify .mcp.json configuration exists"""
+    def test_server_entry_point_exists(self):
+        """Verify server.py entry point exists"""
         server_dir = Path(__file__).parent.parent
-        mcp_json = server_dir / ".mcp.json"
-        assert mcp_json.exists(), ".mcp.json should exist"
+        server_py = server_dir / "server.py"
+        assert server_py.exists(), "server.py should exist"
 
     def test_readme_exists(self):
         """Verify README documentation exists"""

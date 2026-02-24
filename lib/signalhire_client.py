@@ -737,11 +737,11 @@ class SignalHireClient:
             await self.start_session()
 
         # Estimate search profiles needed based on endpoint and size
+        # Only count for searchByQuery (Search API), NOT candidate/search (Person API)
         search_profiles_needed = 0
-        if "/candidate/search" in endpoint and method == "POST":
-            # Estimate search profiles based on size parameter
+        if "/candidate/searchByQuery" in endpoint and method == "POST":
             json_data = kwargs.get('json', {})
-            search_profiles_needed = json_data.get('size', 25)  # Default size is 25
+            search_profiles_needed = json_data.get('size', 25)
 
         # Apply rate limiting with daily usage tracking
         daily_status = await self.rate_limiter.wait_if_needed(
@@ -820,7 +820,9 @@ class SignalHireClient:
 
             elif response.status_code == 402:
                 # Payment required (insufficient credits)
-                error_message = "Insufficient credits. Please check your account balance or purchase additional credits."
+                # Include response details for debugging
+                detail = data.get("message") or data.get("error") or ""
+                error_message = f"Insufficient credits (HTTP 402). {detail}. Check your credit balance with check_credits(). If using without_contacts=true, verify you have 'without contacts' credits separately."
 
             elif response.status_code == 403:
                 # Forbidden - could be authentication or permissions
