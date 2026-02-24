@@ -107,8 +107,7 @@ class TestPromptGeneration:
         assert isinstance(result, str)
         assert str(count) in result
         assert "batch_reveal_contacts" in result
-        assert "without_contacts" in result
-        assert "cheaper" in result.lower()
+        assert "credit" in result.lower()
 
     async def test_export_search_results_prompt(self, mcp_client):
         """Test export results prompt"""

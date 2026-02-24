@@ -136,7 +136,21 @@ mcp = FastMCP(
     - Credit management and usage tracking
     - Webhook-based async operations
 
-    Use search_prospects() to find candidates, then reveal_contact() to get their contact info.
+    IMPORTANT — Credit pools:
+    SignalHire has TWO separate credit pools:
+    1. Regular credits (with contacts) — used by default. Always use this unless told otherwise.
+    2. "Without contacts" credits — a separate, smaller pool. Do NOT use without_contacts=true
+       unless you have confirmed available credits via check_credits(without_contacts=true) first.
+    Most accounts have credits only in pool #1. Using without_contacts=true when pool #2 is empty
+    causes a 402 "Insufficient credits" error even though pool #1 has thousands of credits.
+
+    Workflow:
+    1. search_prospects() to find candidates (free, no credits consumed)
+    2. reveal_contact() or batch_reveal_contacts() to get contact info (1 credit each)
+       — ALWAYS use the default without_contacts=false
+    3. Results arrive async via webhook callback
+    4. Use get_request_status() to check completion
+
     All operations respect rate limits (600 items/min, 3 concurrent searches).
     """,
     version="1.0.0",
@@ -254,11 +268,14 @@ async def search_prospects(
 @mcp.tool
 async def reveal_contact(
     identifier: Annotated[str, Field(description="LinkedIn URL, email, phone, or UID")],
-    without_contacts: Annotated[bool, Field(description="If true, returns profile without contact info. WARNING: uses separate credit pool — check credits with check_credits(without_contacts=true) first")] = False,
+    without_contacts: Annotated[bool, Field(description="LEAVE AS FALSE (default). If true, uses a separate 'without contacts' credit pool which is likely empty (causes 402). Only set true after confirming credits via check_credits(without_contacts=true).")] = False,
     ctx: Context = None
 ) -> dict:
     """
     Reveal contact information for a single profile.
+
+    IMPORTANT: Always use the default without_contacts=false. The without_contacts=true
+    option uses a separate credit pool that is typically empty (0 credits), causing 402 errors.
 
     Async operation - returns requestId immediately, then sends results to webhook.
     Use get_request_status() to check completion or wait for webhook callback.
@@ -291,11 +308,14 @@ async def reveal_contact(
 @mcp.tool
 async def batch_reveal_contacts(
     identifiers: Annotated[list[str], Field(description="List of LinkedIn URLs, emails, phones, or UIDs (max 100)")],
-    without_contacts: Annotated[bool, Field(description="If true, returns profiles without contact info")] = False,
+    without_contacts: Annotated[bool, Field(description="LEAVE AS FALSE (default). The without_contacts credit pool is typically empty. Only set true after confirming credits via check_credits(without_contacts=true).")] = False,
     ctx: Context = None
 ) -> dict:
     """
     Batch reveal contact information for multiple profiles.
+
+    IMPORTANT: Always use the default without_contacts=false. The without_contacts=true
+    option uses a separate credit pool that is typically empty, causing 402 errors.
 
     Automatically splits into 100-item chunks and handles rate limiting.
     Returns request_id for tracking. Use get_request_status() to monitor progress.
@@ -334,13 +354,17 @@ async def batch_reveal_contacts(
 
 @mcp.tool
 async def check_credits(
-    without_contacts: Annotated[bool, Field(description="Check credits for no-contact operations")] = False,
+    without_contacts: Annotated[bool, Field(description="If true, checks the separate 'without contacts' credit pool (usually 0). Default false checks regular credits.")] = False,
     ctx: Context = None
 ) -> dict:
     """
     Check remaining API credits.
 
-    Returns current credit balance. Different credit pools for with/without contacts.
+    SignalHire has TWO separate credit pools:
+    - Regular (default, without_contacts=false): Main credit balance used for reveals with contact info.
+    - Without contacts (without_contacts=true): Separate pool, often empty (0 credits).
+
+    Always check regular credits first. Only check without_contacts pool if you specifically need it.
     """
     response = await state.client.check_credits(without_contacts=without_contacts)
 
@@ -736,6 +760,19 @@ async def get_credits_resource() -> str:
     return json.dumps(response.data)
 
 
+@mcp.resource("signalhire://credits/all")
+async def get_all_credits_resource() -> str:
+    """Both credit pools: regular (with contacts) and without-contacts. Check this before using without_contacts=true."""
+    regular = await state.client.check_credits(without_contacts=False)
+    without = await state.client.check_credits(without_contacts=True)
+    data = {
+        "regular_credits": regular.data.get("credits", 0) if regular.success else "error",
+        "without_contacts_credits": without.data.get("credits", 0) if without.success else "error",
+        "recommendation": "Use regular credits (default). Without-contacts pool is typically 0."
+    }
+    return json.dumps(data)
+
+
 @mcp.resource("signalhire://rate-limits")
 async def get_rate_limits() -> str:
     """Current rate limit status"""
@@ -867,21 +904,24 @@ async def manage_credits_prompt() -> str:
     return """
 To manage SignalHire API credits:
 
-1. Check current balance:
+IMPORTANT: SignalHire has TWO separate credit pools:
+- Regular credits (with contacts) — your main pool. ALWAYS use this by default.
+- "Without contacts" credits — a separate pool, usually EMPTY (0 credits).
+  Do NOT use without_contacts=true unless you've confirmed that pool has credits.
+
+1. Check your regular credit balance:
    call check_credits()
 
-2. Check credits for no-contact operations (cheaper):
-   call check_credits(without_contacts=true)
+2. Estimate cost before batch operation:
+   - 1 credit per profile reveal (with contacts, the default)
+   - Search operations are FREE (no credits consumed)
 
-3. Estimate cost before batch operation:
-   - With contacts: 1 credit per profile
-   - Without contacts: 0.5 credits per profile (estimate)
-
-4. View usage history:
+3. View usage history:
    read signalhire://requests/history
 
-Credits are consumed when contacts are revealed.
-Search operations do NOT consume credits.
+4. (Advanced) Check without-contacts pool — only if specifically needed:
+   call check_credits(without_contacts=true)
+   WARNING: This pool is often 0. Using without_contacts=true with 0 credits causes 402 errors.
 """
 
 
@@ -892,13 +932,15 @@ async def validate_bulk_emails_prompt(count: int) -> str:
 I need to validate {count} email addresses.
 
 Workflow:
-1. Prepare list of emails
-2. Call batch_reveal_contacts(identifiers=emails, without_contacts=true)
-   - without_contacts=true makes it cheaper
-3. Monitor: get_request_status(request_id="<returned_id>")
-4. Results indicate which emails exist in SignalHire database
+1. Check credits first: call check_credits() — need at least {count} credits
+2. Prepare list of emails
+3. Call batch_reveal_contacts(identifiers=emails)
+   NOTE: Do NOT use without_contacts=true — that credit pool is typically empty (0 credits).
+   Use the default (with contacts) which draws from your main credit pool.
+4. Monitor: get_request_status(request_id="<returned_id>")
+5. Results indicate which emails exist in SignalHire database and include contact info
 
-This is cheaper than full enrichment and validates email existence.
+Cost: 1 credit per email validated.
 """
 
 
