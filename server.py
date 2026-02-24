@@ -254,7 +254,7 @@ async def search_prospects(
 @mcp.tool
 async def reveal_contact(
     identifier: Annotated[str, Field(description="LinkedIn URL, email, phone, or UID")],
-    without_contacts: Annotated[bool, Field(description="If true, returns profile without contact info (cheaper)")] = False,
+    without_contacts: Annotated[bool, Field(description="If true, returns profile without contact info. WARNING: uses separate credit pool — check credits with check_credits(without_contacts=true) first")] = False,
     ctx: Context = None
 ) -> dict:
     """
@@ -370,7 +370,12 @@ async def scroll_search_results(
     """
     await ctx.info(f"Scrolling search results for request {request_id}")
 
-    response = await state.client.scroll_search(request_id, scroll_id)
+    try:
+        request_id_int = int(request_id)
+    except (ValueError, TypeError):
+        raise ValueError(f"Invalid request_id '{request_id}' — must be a numeric ID from the initial search")
+
+    response = await state.client.scroll_search(request_id_int, scroll_id)
 
     if not response.success:
         if "expired" in str(response.error).lower():
@@ -523,11 +528,11 @@ async def validate_email(
     """
     await ctx.info(f"Validating email: {email}")
 
-    # Use search with email to check existence
+    # Use reveal to check existence (uses regular credits — without_contacts pool has 0)
     response = await state.client.reveal_contact_by_identifier(
         email,
         get_callback_url(),
-        without_contacts=True  # Cheaper
+        without_contacts=False
     )
 
     if not response.success:

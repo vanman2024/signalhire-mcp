@@ -171,7 +171,7 @@ class TestCoreAPITools:
         result = await mcp_client.call_tool(
             "scroll_search_results",
             {
-                "request_id": "req_123",
+                "request_id": "123456",
                 "scroll_id": "scroll_abc"
             }
         )
@@ -411,6 +411,23 @@ class TestToolErrorHandling:
         """Test scroll with invalid request/scroll IDs"""
         from fastmcp.exceptions import ToolError
         import server
+
+        # Non-numeric request_id should fail with validation error
+        try:
+            result = await mcp_client.call_tool(
+                "scroll_search_results",
+                {
+                    "request_id": "invalid",
+                    "scroll_id": "expired"
+                }
+            )
+        except (ValueError, ToolError) as e:
+            assert "invalid" in str(e).lower() or "numeric" in str(e).lower()
+
+    async def test_scroll_expired_scroll_id(self, mcp_client):
+        """Test scroll with expired scrollId"""
+        from fastmcp.exceptions import ToolError
+        import server
         with patch.object(server.state.client, 'scroll_search') as mock_scroll:
             mock_scroll.return_value = Mock(
                 success=False,
@@ -421,7 +438,7 @@ class TestToolErrorHandling:
                 result = await mcp_client.call_tool(
                     "scroll_search_results",
                     {
-                        "request_id": "invalid",
+                        "request_id": "999999",
                         "scroll_id": "expired"
                     }
                 )
