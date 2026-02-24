@@ -871,8 +871,12 @@ class SignalHireClient:
 
             return APIResponse(success=False, error=enhanced_error, status_code=None)
 
-    async def check_credits(self) -> APIResponse:
-        """Check current credit balance and usage."""
+    async def check_credits(self, without_contacts: bool = False) -> APIResponse:
+        """Check current credit balance and usage.
+
+        Args:
+            without_contacts: If True, check credits for the "without contacts" plan.
+        """
         # Check cache first
         if (
             self._credits_cache
@@ -882,7 +886,11 @@ class SignalHireClient:
         ):
             return APIResponse(success=True, data=self._credits_cache)
 
-        response = await self._make_request("GET", "/credits")
+        params = {}
+        if without_contacts:
+            params["withoutContacts"] = "true"
+
+        response = await self._make_request("GET", "/credits", params=params)
 
         # Cache successful responses
         if response.success and response.data:
@@ -928,17 +936,20 @@ class SignalHireClient:
         return await self._make_request("GET", f"/prospects/{prospect_id}")
 
     async def reveal_contact_by_identifier(
-        self, identifier: str, callback_url: str
+        self, identifier: str, callback_url: str, without_contacts: bool = False
     ) -> APIResponse:
         """
         Reveal contact information using SignalHire's Person API.
         Args:
             identifier: LinkedIn URL, email, phone, or 32-character UID
             callback_url: URL where results will be sent
+            without_contacts: If True, returns profile without contact info (cheaper)
         Returns:
             APIResponse with request ID if successful
         """
         data = {"items": [identifier], "callbackUrl": callback_url}
+        if without_contacts:
+            data["withoutContacts"] = True
 
         return await self._make_request("POST", "/candidate/search", json=data)
 
@@ -1005,27 +1016,37 @@ class SignalHireClient:
 
     async def batch_reveal_contacts(
         self,
-        prospect_ids: list[str],
-        batch_size: int = 10,
-        progress_callback: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
-    ) -> list[APIResponse]:
+        identifiers: list[str],
+        callback_url: str,
+        without_contacts: bool = False,
+        progress_callback: Callable[[int, int], Awaitable[None]] | None = None,
+    ) -> APIResponse:
         """
-        Reveal contacts for multiple prospects in batches with enhanced progress reporting.
-        Limited to API constraints (~100 total). For larger operations,
-        use browser automation service.
+        Batch reveal contacts using the SignalHire Person API (POST /candidate/search).
+
+        The API accepts up to 100 items per request. For lists larger than 100,
+        items are automatically chunked into groups of 100 and sent as separate
+        API calls. Results from all chunks are aggregated into a single response.
+
+        Args:
+            identifiers: List of LinkedIn URLs, emails, phones, or 32-char UIDs
+            callback_url: URL where results will be sent via webhook
+            without_contacts: If true, returns profiles without contact info (cheaper)
+            progress_callback: Optional async callback(processed, total) for progress
+        Returns:
+            Single APIResponse with aggregated request data
         """
         # Validate inputs
-        if not isinstance(prospect_ids, list) or any(
-            not isinstance(p, str) for p in prospect_ids
+        if not isinstance(identifiers, list) or any(
+            not isinstance(item, str) for item in identifiers
         ):
-            raise SignalHireAPIError("prospect_ids must be a list of strings")
-        if not isinstance(batch_size, int) or batch_size <= 0:
-            raise SignalHireAPIError("batch_size must be a positive integer")
+            raise SignalHireAPIError("identifiers must be a list of strings")
 
-        total = len(prospect_ids)
-        if total > 100:
-            raise SignalHireAPIError(
-                "API batch reveal limited to 100 prospects. Use browser automation for larger batches."
+        total = len(identifiers)
+        if total == 0:
+            return APIResponse(
+                success=True,
+                data={"request_id": None, "count": 0, "message": "No identifiers provided"},
             )
 
         # Credit pre-check (assume 1 credit per reveal)
@@ -1043,147 +1064,74 @@ class SignalHireClient:
                     response_data={"needed": total, "remaining": remaining},
                 )
         except SignalHireAPIError:
-            # Propagate credit errors
             raise
         except Exception as e:
-            # If credits check fails for other reasons, proceed but log the issue
             self.logger.warning("Credit pre-check failed", error=str(e))
 
-        # Enhanced progress tracking
-        start_time = datetime.now()
-        results = []
-        semaphore = asyncio.Semaphore(self.max_concurrency)
+        # Split identifiers into chunks of up to 100 (API limit per request)
+        chunk_size = 100
+        chunks = [identifiers[i : i + chunk_size] for i in range(0, total, chunk_size)]
 
-        # Progress statistics
-        stats = {
-            "total": total,
-            "processed": 0,
-            "successful": 0,
-            "failed": 0,
-            "start_time": start_time,
-            "last_update": start_time,
-            "batch_size": batch_size,
-            "errors": [],
-            "estimated_completion": None,
-        }
+        all_request_ids = []
+        all_errors = []
+        processed = 0
 
-        async def wrapped_reveal(pid: str) -> APIResponse:
-            async with semaphore:
-                try:
-                    result = await self.reveal_contact(pid)
+        for chunk_idx, chunk in enumerate(chunks):
+            data = {"items": chunk, "callbackUrl": callback_url}
+            if without_contacts:
+                data["withoutContacts"] = True
 
-                    # Update statistics
-                    stats["processed"] += 1
-                    if result.success:
-                        stats["successful"] += 1
-                    else:
-                        stats["failed"] += 1
-                        if result.error:
-                            stats["errors"].append(
-                                {
-                                    "prospect_id": pid,
-                                    "error": result.error,
-                                    "status_code": result.status_code,
-                                }
-                            )
+            response = await self._make_request("POST", "/candidate/search", json=data)
 
-                    # Calculate progress metrics
-                    elapsed = (datetime.now() - start_time).total_seconds()
-                    success_rate = (
-                        stats["successful"] / stats["processed"]
-                        if stats["processed"] > 0
-                        else 0
-                    )
-                    avg_time_per_contact = (
-                        elapsed / stats["processed"] if stats["processed"] > 0 else 0
-                    )
-                    remaining_contacts = total - stats["processed"]
+            processed += len(chunk)
 
-                    # Estimate completion time
-                    if avg_time_per_contact > 0:
-                        estimated_remaining = remaining_contacts * avg_time_per_contact
-                        stats["estimated_completion"] = datetime.now() + timedelta(
-                            seconds=estimated_remaining
-                        )
+            if response.success:
+                request_id = (response.data or {}).get("requestId") or (response.data or {}).get("request_id")
+                if request_id:
+                    all_request_ids.append(request_id)
+            else:
+                all_errors.append({
+                    "chunk": chunk_idx,
+                    "error": response.error,
+                    "status_code": response.status_code,
+                })
 
-                    # Enhanced progress report
-                    progress_data = {
-                        "current": stats["processed"],
-                        "total": total,
-                        "successful": stats["successful"],
-                        "failed": stats["failed"],
-                        "success_rate": round(success_rate * 100, 1),
-                        "elapsed_seconds": round(elapsed, 1),
-                        "avg_time_per_contact": round(avg_time_per_contact, 2),
-                        "estimated_completion": (
-                            stats["estimated_completion"].isoformat()
-                            if stats["estimated_completion"]
-                            else None
-                        ),
-                        "remaining_contacts": remaining_contacts,
-                        "batch_size": batch_size,
-                        "recent_errors": (
-                            stats["errors"][-3:] if stats["errors"] else []
-                        ),  # Last 3 errors
-                        "credits_used": stats["successful"],
-                        "credits_remaining": remaining,
-                    }
+            # Report progress
+            if progress_callback:
+                with suppress(Exception):
+                    await progress_callback(processed, total)
 
-                    # Call progress callback if provided
-                    if progress_callback:
-                        with suppress(Exception):
-                            await progress_callback(progress_data)
-
-                    return result
-
-                except Exception as ex:
-                    # Update failure statistics
-                    stats["processed"] += 1
-                    stats["failed"] += 1
-                    stats["errors"].append(
-                        {"prospect_id": pid, "error": str(ex), "status_code": None}
-                    )
-
-                    # Return error response
-                    return APIResponse(
-                        success=False, error=str(ex), data={"prospect_id": pid}
-                    )
-
-        # Process in smaller batches to respect rate limits
-        for i in range(0, total, batch_size):
-            batch = prospect_ids[i : i + batch_size]
-            batch_results = await asyncio.gather(
-                *(wrapped_reveal(pid) for pid in batch)
-            )
-            results.extend(batch_results)
-
-            # Log batch completion
-            batch_num = (i // batch_size) + 1
-            total_batches = (total + batch_size - 1) // batch_size
             self.logger.info(
-                "Batch completed",
-                batch=batch_num,
-                total_batches=total_batches,
-                batch_successful=sum(1 for r in batch_results if r.success),
-                batch_failed=sum(1 for r in batch_results if not r.success),
+                "Batch chunk submitted",
+                chunk=chunk_idx + 1,
+                total_chunks=len(chunks),
+                chunk_items=len(chunk),
+                success=response.success,
             )
 
-        # Final progress report
-        total_elapsed = (datetime.now() - start_time).total_seconds()
-        final_success_rate = stats["successful"] / total if total > 0 else 0
-
-        self.logger.info(
-            "Batch reveal completed",
-            total=total,
-            successful=stats["successful"],
-            failed=stats["failed"],
-            success_rate=round(final_success_rate * 100, 1),
-            total_time=round(total_elapsed, 1),
-            avg_time_per_contact=round(total_elapsed / total, 2) if total > 0 else 0,
-            credits_used=stats["successful"],
-        )
-
-        return results
+        # Aggregate results
+        if all_request_ids:
+            # Use the first request_id as the primary identifier
+            # (single chunk = single request_id, multiple chunks = list)
+            primary_request_id = all_request_ids[0] if len(all_request_ids) == 1 else all_request_ids[0]
+            return APIResponse(
+                success=True,
+                data={
+                    "request_id": primary_request_id,
+                    "request_ids": all_request_ids,
+                    "count": total,
+                    "chunks_sent": len(chunks),
+                    "errors": all_errors if all_errors else None,
+                },
+            )
+        else:
+            # All chunks failed
+            error_msg = "; ".join(e.get("error", "Unknown error") for e in all_errors)
+            return APIResponse(
+                success=False,
+                error=f"All batch chunks failed: {error_msg}",
+                data={"errors": all_errors},
+            )
 
     async def get_search_suggestions(self, query: str) -> APIResponse:
         """Get search suggestions for companies, titles, or locations."""
@@ -1268,12 +1216,14 @@ class SignalHireClient:
             total_in_batch=len(prospect_ids),
         )
 
-        # Process the batch using existing batch_reveal_contacts method
-        results = await self.batch_reveal_contacts(
-            prospect_ids,
-            batch_size=len(prospect_ids),
-            progress_callback=progress_callback,
-        )
+        # Process each prospect individually using reveal_contact
+        semaphore = asyncio.Semaphore(self.max_concurrency)
+
+        async def _reveal_one(pid: str) -> APIResponse:
+            async with semaphore:
+                return await self.reveal_contact(pid)
+
+        results = await asyncio.gather(*(_reveal_one(pid) for pid in prospect_ids))
 
         # Update queue status based on results
         for i, (item_id, result) in enumerate(zip(item_ids, results, strict=False)):
@@ -1422,14 +1372,18 @@ class SignalHireClient:
         """
         Bulk reveal contacts with enhanced progress reporting.
         Compatibility method for CLI operations with detailed progress tracking.
+        Uses reveal_contact() per-item for individual progress tracking.
         """
         prospect_ids = getattr(operation, "prospect_ids", [])
-        batch_size = getattr(operation, "batch_size", 10)
 
-        # Use enhanced batch_reveal_contacts with progress reporting
-        results = await self.batch_reveal_contacts(
-            prospect_ids, batch_size=batch_size, progress_callback=progress_callback
-        )
+        # Reveal each prospect individually for granular tracking
+        semaphore = asyncio.Semaphore(self.max_concurrency)
+
+        async def _reveal_one(pid: str) -> APIResponse:
+            async with semaphore:
+                return await self.reveal_contact(pid)
+
+        results = await asyncio.gather(*(_reveal_one(pid) for pid in prospect_ids))
 
         prospect_records: list[dict[str, Any]] = []
         success_count = 0
@@ -1549,10 +1503,15 @@ async def example_search_workflow():
 
         # Reveal contacts for first 10 prospects
         prospect_ids = [p["id"] for p in prospects[:10]]
-        reveal_results = await client.batch_reveal_contacts(prospect_ids)
+        reveal_result = await client.batch_reveal_contacts(
+            prospect_ids,
+            callback_url="https://your-callback-url.example.com/webhook",
+        )
 
-        successful_reveals = [r for r in reveal_results if r.success]
-        print(f"Successfully revealed {len(successful_reveals)} contacts")
+        if reveal_result.success:
+            print(f"Batch reveal submitted: {reveal_result.data}")
+        else:
+            print(f"Batch reveal failed: {reveal_result.error}")
 
 
 if __name__ == "__main__":

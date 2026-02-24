@@ -8,6 +8,7 @@ Self-contained configuration: Loads .env from server directory automatically.
 """
 
 import asyncio
+import json
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -15,6 +16,13 @@ from typing import Annotated
 
 from dotenv import load_dotenv
 from fastmcp import FastMCP, Context
+
+try:
+    from fastmcp.server.middleware.response_limiting import ResponseLimitingMiddleware
+    HAS_RESPONSE_LIMITING = True
+except ImportError:
+    HAS_RESPONSE_LIMITING = False
+
 from pydantic import Field
 
 # Load .env from the same directory as this server.py file
@@ -135,6 +143,9 @@ mcp = FastMCP(
     lifespan=lifespan  # FastMCP 2.x lifecycle management
 )
 
+if HAS_RESPONSE_LIMITING:
+    mcp.add_middleware(ResponseLimitingMiddleware(max_size=100_000))
+
 
 # =============================================================================
 # TOOLS (13 total)
@@ -153,6 +164,19 @@ async def search_prospects(
     years_experience_from: Annotated[int | None, Field(ge=0, description="Minimum years of experience")] = None,
     years_experience_to: Annotated[int | None, Field(le=50, description="Maximum years of experience")] = None,
     open_to_work: Annotated[bool | None, Field(description="Filter by job-seeking status")] = None,
+    current_past_title: Annotated[str | None, Field(description="Boolean query for current AND past job titles")] = None,
+    current_past_company: Annotated[str | None, Field(description="Boolean query for current AND past companies")] = None,
+    full_name: Annotated[str | None, Field(description="Search by person's full name")] = None,
+    industry: Annotated[str | None, Field(description="Filter by industry category")] = None,
+    exclude_revealed: Annotated[bool | None, Field(description="Exclude already-revealed profiles (saves credits)")] = None,
+    exclude_emailed: Annotated[bool | None, Field(description="Exclude previously emailed profiles")] = None,
+    exclude_watched: Annotated[bool | None, Field(description="Exclude previously viewed profiles")] = None,
+    exclude_in_lists: Annotated[bool | None, Field(description="Exclude profiles already in lists")] = None,
+    exclude_in_progress: Annotated[bool | None, Field(description="Exclude profiles in job pipelines")] = None,
+    latitude: Annotated[float | None, Field(description="Latitude for geo search")] = None,
+    longitude: Annotated[float | None, Field(description="Longitude for geo search")] = None,
+    years_current_past_experience_from: Annotated[int | None, Field(ge=0, description="Min total years experience (current + past)")] = None,
+    years_current_past_experience_to: Annotated[int | None, Field(ge=0, description="Max total years experience (current + past)")] = None,
     size: Annotated[int, Field(ge=1, le=100, description="Results per page")] = 25,
     ctx: Context = None
 ) -> dict:
@@ -180,6 +204,32 @@ async def search_prospects(
         criteria["yearsOfCurrentExperienceTo"] = years_experience_to
     if open_to_work is not None:
         criteria["openToWork"] = open_to_work
+    if current_past_title:
+        criteria["currentPastTitle"] = current_past_title
+    if current_past_company:
+        criteria["currentPastCompany"] = current_past_company
+    if full_name:
+        criteria["fullName"] = full_name
+    if industry:
+        criteria["industry"] = industry
+    if exclude_revealed is not None:
+        criteria["excludeRevealed"] = exclude_revealed
+    if exclude_emailed is not None:
+        criteria["excludeEmailed"] = exclude_emailed
+    if exclude_watched is not None:
+        criteria["excludeWatched"] = exclude_watched
+    if exclude_in_lists is not None:
+        criteria["excludeInLists"] = exclude_in_lists
+    if exclude_in_progress is not None:
+        criteria["excludeInProgress"] = exclude_in_progress
+    if latitude is not None:
+        criteria["latitude"] = latitude
+    if longitude is not None:
+        criteria["longitude"] = longitude
+    if years_current_past_experience_from is not None:
+        criteria["yearsOfCurrentPastExperienceFrom"] = years_current_past_experience_from
+    if years_current_past_experience_to is not None:
+        criteria["yearsOfCurrentPastExperienceTo"] = years_current_past_experience_to
 
     # Execute search
     response = await state.client.search_prospects(criteria, size=size)
@@ -361,37 +411,51 @@ async def search_and_enrich(
     await ctx.info("Starting search and enrich workflow...")
     await ctx.report_progress(0, 3, "Phase 1: Searching profiles...")
 
-    # Phase 1: Search
-    search_result = await search_prospects(
-        title=title,
-        location=location,
-        company=company,
-        size=max_results,
-        ctx=ctx
-    )
+    # Phase 1: Search (call client directly, not tool objects)
+    criteria = {}
+    if title:
+        criteria["currentTitle"] = title
+    if location:
+        criteria["location"] = location
+    if company:
+        criteria["currentCompany"] = company
 
-    profiles = search_result["profiles"]
+    search_response = await state.client.search_prospects(criteria, size=max_results)
+
+    if not search_response.success:
+        raise ValueError(f"Search failed: {search_response.error}")
+
+    profiles = search_response.data.get("profiles", [])
+    total = search_response.data.get("total", 0)
     uids = [p["uid"] for p in profiles if "uid" in p]
 
     if not uids:
         return {
             "error": "No profiles found",
-            "search_total": search_result["total"]
+            "search_total": total
         }
 
     await ctx.report_progress(1, 3, f"Phase 2: Enriching {len(uids)} profiles...")
 
-    # Phase 2: Batch reveal
-    reveal_result = await batch_reveal_contacts(uids, ctx=ctx)
+    # Phase 2: Batch reveal (call client directly, not tool objects)
+    callback_url = get_callback_url()
+    reveal_response = await state.client.batch_reveal_contacts(
+        uids, callback_url
+    )
+
+    if not reveal_response.success:
+        raise ValueError(f"Batch reveal failed: {reveal_response.error}")
 
     await ctx.report_progress(3, 3, "Workflow complete")
 
+    request_id = reveal_response.data.get("request_id")
+
     return {
-        "search_total": search_result["total"],
+        "search_total": total,
         "profiles_found": len(profiles),
-        "enrichment_request_id": reveal_result["request_id"],
+        "enrichment_request_id": request_id,
         "status": "processing",
-        "message": f"Enriching {len(uids)} profiles - check request status or wait for webhook"
+        "message": f"Enriching {len(uids)} profiles - results will be sent to webhook"
     }
 
 
@@ -412,20 +476,33 @@ async def enrich_linkedin_profile(
     """
     await ctx.info(f"Enriching LinkedIn profile: {linkedin_url}")
 
-    # Check credits first
-    credits_result = await check_credits(ctx=ctx)
-    if credits_result["credits"] < 1:
+    # Check credits first (call client directly, not the tool object)
+    credits_response = await state.client.check_credits()
+    if not credits_response.success:
+        raise ValueError(f"Credits check failed: {credits_response.error}")
+
+    credits = credits_response.data.get("credits", 0)
+    if credits < 1:
         raise ValueError("Insufficient credits")
 
-    # Reveal contact
-    result = await reveal_contact(linkedin_url, ctx=ctx)
+    # Reveal contact (call client directly, not the tool object)
+    callback_url = get_callback_url()
+    reveal_response = await state.client.reveal_contact_by_identifier(
+        linkedin_url, callback_url
+    )
+
+    if not reveal_response.success:
+        raise ValueError(f"Reveal failed: {reveal_response.error}")
+
+    request_id = reveal_response.data.get("requestId") or reveal_response.data.get("request_id")
 
     return {
-        "request_id": result["request_id"],
+        "request_id": request_id,
         "profile_url": linkedin_url,
         "status": "processing",
-        "credits_remaining": credits_result["credits"] - 1,
-        "message": "Profile enrichment started - check cache or wait for webhook"
+        "credits_remaining": credits - 1,
+        "callback_url": callback_url,
+        "message": "Profile enrichment started - results will be sent to webhook"
     }
 
 
@@ -538,17 +615,34 @@ async def get_request_status(
     """
     Check status of an async request.
 
-    Returns: processing, completed, failed
-    Use this to monitor reveal/batch operations.
+    SignalHire uses an async callback model - results are POSTed to your callbackUrl.
+    This tool checks local tracking state for the given request ID.
     """
     await ctx.info(f"Checking status for request: {request_id}")
 
-    response = await state.client.get_request_status(request_id)
+    # Check if callback server has pending handler for this request
+    if state.callback_server and request_id in state.callback_server._request_handlers:
+        return {
+            "request_id": request_id,
+            "status": "processing",
+            "message": "Awaiting callback from SignalHire"
+        }
 
-    if not response.success:
-        raise ValueError(f"Status check failed: {response.error}")
+    # Check cache for completed results
+    if state.cache:
+        cached = state.cache.get(request_id)
+        if cached:
+            return {
+                "request_id": request_id,
+                "status": "completed",
+                "data": cached
+            }
 
-    return response.data
+    return {
+        "request_id": request_id,
+        "status": "unknown",
+        "message": "No local tracking data found. SignalHire API is fully async - results are delivered via webhook callback. Check your callback server logs."
+    }
 
 
 @mcp.tool
@@ -557,18 +651,22 @@ async def list_requests(
     ctx: Context = None
 ) -> dict:
     """
-    List recent API requests with their status.
+    List tracked API requests.
 
-    Returns request history for monitoring and debugging.
+    SignalHire uses an async callback model. This returns locally tracked
+    pending requests from the callback server.
     """
-    await ctx.info(f"Listing last {limit} requests")
+    await ctx.info(f"Listing tracked requests")
 
-    response = await state.client.list_requests(limit=limit)
+    pending = []
+    if state.callback_server:
+        pending = list(state.callback_server._request_handlers.keys())[:limit]
 
-    if not response.success:
-        raise ValueError(f"List requests failed: {response.error}")
-
-    return response.data
+    return {
+        "pending_requests": pending,
+        "pending_count": len(pending),
+        "message": "SignalHire API is fully async. Results are delivered via webhook callback. These are requests awaiting callbacks."
+    }
 
 
 @mcp.tool
@@ -594,72 +692,77 @@ async def clear_cache(ctx: Context = None) -> dict:
 # =============================================================================
 
 @mcp.resource("signalhire://contacts/{uid}")
-async def get_cached_contact(uid: str) -> dict:
+async def get_cached_contact(uid: str) -> str:
     """Get enriched contact from cache by UID"""
-    contact = cache.get(uid)
+    contact = state.cache.get(uid)
     if not contact:
         raise ValueError(f"Contact {uid} not found in cache")
-    return contact
+    return json.dumps(contact)
 
 
 @mcp.resource("signalhire://cache/stats")
-async def get_cache_stats() -> dict:
+async def get_cache_stats() -> str:
     """Get contact cache statistics"""
-    stats = cache.get_stats() if hasattr(cache, 'get_stats') else {}
-    return {
-        "total_contacts": len(cache._cache) if hasattr(cache, '_cache') else 0,
-        "cache_size_mb": 0,  # Would need to calculate
+    stats = state.cache.get_stats() if hasattr(state.cache, 'get_stats') else {}
+    data = {
+        "total_contacts": len(state.cache._cache) if hasattr(state.cache, '_cache') else 0,
+        "cache_size_mb": 0,
         **stats
     }
+    return json.dumps(data)
 
 
 @mcp.resource("signalhire://recent-searches")
-async def get_recent_searches() -> list[dict]:
+async def get_recent_searches() -> str:
     """Get recent search queries (last 10)"""
-    # Would implement based on request history
-    return []
+    return json.dumps([])
 
 
 @mcp.resource("signalhire://credits")
-async def get_credits_resource() -> dict:
+async def get_credits_resource() -> str:
     """Current credit balance (cached for 5 min)"""
     response = await state.client.check_credits()
     if not response.success:
         raise ValueError(f"Credits check failed: {response.error}")
-    return response.data
+    return json.dumps(response.data)
 
 
 @mcp.resource("signalhire://rate-limits")
-async def get_rate_limits() -> dict:
+async def get_rate_limits() -> str:
     """Current rate limit status"""
-    rate_limiter = client._rate_limiter if hasattr(client, '_rate_limiter') else None
+    rate_limiter = state.client.rate_limiter if state.client else None
     if not rate_limiter:
-        return {"status": "unknown"}
+        return json.dumps({"status": "unknown"})
 
-    return {
+    return json.dumps({
         "items_per_minute": 600,
         "concurrent_searches": 3,
-        "current_usage": 0,  # Would track actual usage
-        "reset_at": None
-    }
+        "daily_limit": rate_limiter.daily_limit,
+        "daily_usage": rate_limiter.daily_usage,
+    })
 
 
 @mcp.resource("signalhire://requests/history")
-async def get_requests_history() -> list[dict]:
-    """Request history (last 100)"""
-    response = await state.client.list_requests(limit=100)
-    if not response.success:
-        return []
-    return response.data.get("requests", [])
+async def get_requests_history() -> str:
+    """Pending request history from local callback server"""
+    pending = []
+    if state.callback_server:
+        pending = [
+            {"request_id": rid, "status": "pending"}
+            for rid in state.callback_server._request_handlers.keys()
+        ]
+    return json.dumps(pending)
 
 
 @mcp.resource("signalhire://account")
-async def get_account_info() -> dict:
-    """Account information and subscription details"""
-    response = await state.client.get_account_info() if hasattr(client, 'get_account_info') else None
-    if not response or not response.success:
-        return {"status": "unavailable"}
-    return response.data
+async def get_account_info() -> str:
+    """Account information - credits and rate limit status"""
+    if not state.client:
+        return json.dumps({"status": "unavailable"})
+    response = await state.client.check_credits()
+    if not response.success:
+        return json.dumps({"status": "unavailable", "error": response.error})
+    return json.dumps(response.data)
 
 
 # =============================================================================

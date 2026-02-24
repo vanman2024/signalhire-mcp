@@ -91,6 +91,8 @@ class CallbackServer:
                     content={"status": "accepted", "request_id": request_id},
                 )
 
+            except HTTPException:
+                raise  # Let FastAPI handle HTTP exceptions directly
             except ValidationError as e:
                 logger.error(f"Invalid callback data: {e}")
                 raise HTTPException(
@@ -108,12 +110,13 @@ class CallbackServer:
             return {"status": "healthy", "service": "signalhire-callback"}
 
         @app.get("/")
-        async def root() -> dict[str, str]:
+        async def root() -> dict[str, Any]:
             """Root endpoint with basic info."""
             return {
                 "service": "SignalHire Callback Server",
                 "version": "1.0.0",
-                "endpoints": {"callback": "/signalhire/callback", "health": "/health"},
+                "callback_endpoint": "/signalhire/callback",
+                "health_endpoint": "/health",
             }
 
         self.app = app

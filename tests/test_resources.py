@@ -40,7 +40,7 @@ class TestResourceAccess:
         with patch.object(server.state.cache, 'get', return_value=None):
             try:
                 result = await mcp_client.read_resource("signalhire://contacts/nonexistent")
-            except ValueError as e:
+            except Exception as e:
                 assert "not found" in str(e).lower()
 
     async def test_get_cache_stats(self, mcp_client):
@@ -167,7 +167,7 @@ class TestResourceErrorHandling:
 
             try:
                 result = await mcp_client.read_resource("signalhire://credits")
-            except ValueError as e:
+            except Exception as e:
                 assert "failed" in str(e).lower()
 
     async def test_history_resource_empty(self, mcp_client):

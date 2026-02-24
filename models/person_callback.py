@@ -1,12 +1,8 @@
-from __future__ import annotations
+# Note: 'from __future__ import annotations' removed - breaks Pydantic v2 model resolution
 
-from typing import TYPE_CHECKING, Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, HttpUrl
-
-if TYPE_CHECKING:
-    from .education import EducationEntry
-    from .experience import ExperienceEntry
 
 
 class PersonLocation(BaseModel):
@@ -41,6 +37,15 @@ class PersonLanguage(BaseModel):
 
 
 class PersonCandidate(BaseModel):
+    """Candidate data from SignalHire callback.
+
+    Education and experience use dict to accept the raw API format
+    (university/faculty/startedYear for education, company/position/started
+    for experience) without strict schema validation.
+    """
+
+    model_config = {"extra": "allow"}
+
     uid: str = Field(..., description="Unique identifier")
     full_name: str = Field(..., description="Full name", alias="fullName")
     gender: str | None = Field(None, description="Gender")
@@ -49,11 +54,11 @@ class PersonCandidate(BaseModel):
         default_factory=list, description="Location history"
     )
     skills: list[str] = Field(default_factory=list, description="Skills list")
-    education: list[EducationEntry] = Field(
-        default_factory=list, description="Education history"
+    education: list[dict[str, Any]] = Field(
+        default_factory=list, description="Education history (raw API format)"
     )
-    experience: list[ExperienceEntry] = Field(
-        default_factory=list, description="Work experience"
+    experience: list[dict[str, Any]] = Field(
+        default_factory=list, description="Work experience (raw API format)"
     )
     contacts: list[PersonContact] = Field(
         default_factory=list, description="Contact information"

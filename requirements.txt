@@ -29,8 +29,8 @@ structlog>=23.0.0
 # Async utilities
 asyncio-throttle>=1.0.0
 
-# MCP Server framework (FastMCP 2.x required)
-fastmcp>=2.10.0,<3.0.0
+# MCP Server framework
+fastmcp>=3.0.0
 
 # Optional: Memory and storage (if needed)
 # mem0ai>=0.1.0

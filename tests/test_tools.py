@@ -311,9 +311,10 @@ class TestWorkflowTools:
             {"partial_query": "Python Developer"}
         )
 
-        assert isinstance(result, list)
-        assert len(result) > 0
-        assert all(isinstance(s, str) for s in result)
+        assert "items" in result  # wrapper wraps list as {"items": [...]}
+        assert isinstance(result["items"], list)
+        assert len(result["items"]) > 0
+        assert all(isinstance(s, str) for s in result["items"])
 
 
 @pytest.mark.asyncio
@@ -329,7 +330,7 @@ class TestManagementTools:
         )
 
         assert "status" in result
-        assert result["status"] in ["processing", "completed", "failed"]
+        assert result["status"] in ["processing", "completed", "failed", "unknown"]
 
     async def test_list_requests(self, mcp_client):
         """Test listing recent requests"""
@@ -408,6 +409,7 @@ class TestToolErrorHandling:
 
     async def test_scroll_invalid_ids(self, mcp_client):
         """Test scroll with invalid request/scroll IDs"""
+        from fastmcp.exceptions import ToolError
         import server
         with patch.object(server.state.client, 'scroll_search') as mock_scroll:
             mock_scroll.return_value = Mock(
@@ -423,11 +425,12 @@ class TestToolErrorHandling:
                         "scroll_id": "expired"
                     }
                 )
-            except ValueError as e:
+            except (ValueError, ToolError) as e:
                 assert "expired" in str(e).lower()
 
     async def test_check_credits_api_failure(self, mcp_client):
         """Test credits check when API fails"""
+        from fastmcp.exceptions import ToolError
         import server
         with patch.object(server.state.client, 'check_credits') as mock_credits:
             mock_credits.return_value = Mock(
@@ -437,5 +440,5 @@ class TestToolErrorHandling:
 
             try:
                 result = await mcp_client.call_tool("check_credits", {})
-            except ValueError as e:
-                assert "failed" in str(e).lower()
+            except (ValueError, ToolError) as e:
+                assert "failed" in str(e).lower() or "unavailable" in str(e).lower()

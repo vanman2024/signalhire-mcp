@@ -11,7 +11,7 @@ import pytest
 import os
 import sys
 from pathlib import Path
-from unittest.mock import patch, Mock
+from unittest.mock import patch, Mock, AsyncMock
 
 
 @pytest.mark.asyncio
@@ -69,12 +69,12 @@ class TestDependencies:
             pytest.fail("FastMCP not installed")
 
     def test_fastmcp_version(self):
-        """Verify FastMCP version is 2.x"""
+        """Verify FastMCP version is 3.x"""
         import fastmcp
-        # Should have version 2.x for lifespan support
+        # Should have version 3.x with ResponseLimitingMiddleware support
         if hasattr(fastmcp, '__version__'):
             version = fastmcp.__version__
-            assert version.startswith('2.'), f"FastMCP version {version} should be 2.x"
+            assert version.startswith('3.'), f"FastMCP version {version} should be 3.x"
 
     def test_required_packages_installed(self):
         """Verify all required packages are installed"""
@@ -267,21 +267,22 @@ class TestPerformanceAndReliability:
     async def test_error_recovery(self, mcp_client):
         """Test server recovers from errors"""
         import server
+        from fastmcp.exceptions import ToolError
 
-        # Simulate API error
-        with patch.object(server.state.client, 'check_credits') as mock:
-            mock.return_value = Mock(success=False, error="API Error")
+        # Simulate API error by reconfiguring the mock
+        server.state.client.check_credits = AsyncMock(
+            return_value=Mock(success=False, error="API Error")
+        )
 
-            try:
-                await mcp_client.call_tool("check_credits", {})
-            except ValueError:
-                pass  # Expected error
+        with pytest.raises((ValueError, ToolError)):
+            await mcp_client.call_tool("check_credits", {})
 
-        # Server should still work after error
-        with patch.object(server.state.client, 'check_credits') as mock:
-            mock.return_value = Mock(success=True, data={"credits": 100})
-            result = await mcp_client.call_tool("check_credits", {})
-            assert "credits" in result
+        # Server should still work after error - restore success mock
+        server.state.client.check_credits = AsyncMock(
+            return_value=Mock(success=True, data={"credits": 100})
+        )
+        result = await mcp_client.call_tool("check_credits", {})
+        assert "credits" in result
 
     async def test_memory_usage_stable(self, mcp_client):
         """Test memory usage remains stable over multiple calls"""
@@ -306,15 +307,15 @@ class TestConfigurationValidation:
         assert req_file.exists(), "requirements.txt should exist"
 
     def test_requirements_has_fastmcp(self):
-        """Verify requirements.txt includes FastMCP 2.x"""
+        """Verify requirements.txt includes FastMCP 3.x"""
         server_dir = Path(__file__).parent.parent
         req_file = server_dir / "requirements.txt"
 
         with open(req_file) as f:
             content = f.read()
             assert "fastmcp" in content.lower()
-            # Should specify version 2.x
-            assert "2." in content or ">=2" in content
+            # Should specify version 3.x
+            assert "3." in content or ">=3" in content
 
     def test_mcp_json_exists(self):
         """Verify .mcp.json configuration exists"""
@@ -376,7 +377,7 @@ class TestDeploymentScenarios:
         """Test FastMCP Cloud deployment readiness"""
         import server
 
-        # Should have proper FastMCP 2.x structure
+        # Should have proper FastMCP 3.x structure
         assert server.mcp is not None
         assert hasattr(server, 'lifespan')
 

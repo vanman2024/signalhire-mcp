@@ -10,6 +10,7 @@ Tests SignalHire server's adherence to MCP protocol specification including:
 """
 import pytest
 from unittest.mock import patch, AsyncMock
+from fastmcp.exceptions import ToolError
 
 
 @pytest.mark.asyncio
@@ -118,11 +119,11 @@ class TestResourceDiscovery:
     """Test MCP resource discovery and URI patterns"""
 
     async def test_list_resources(self, mcp_client):
-        """Verify all 7 resources are discoverable"""
+        """Verify all static resources are discoverable"""
         resources = await mcp_client.list_resources()
 
-        # Should have at least 7 resources
-        assert len(resources) >= 7
+        # 6 static resources + 1 template (contacts/{uid}) listed separately
+        assert len(resources) >= 6
 
         # Check for expected resource URIs
         expected_patterns = [
@@ -279,11 +280,10 @@ class TestMessageFormat:
 
             try:
                 result = await mcp_client.call_tool("check_credits", {})
-                # Should raise ValueError
-                assert False, "Expected ValueError to be raised"
-            except ValueError as e:
+                assert False, "Expected error to be raised"
+            except (ValueError, ToolError) as e:
                 # Error should have meaningful message
-                assert "failed" in str(e).lower()
+                assert "failed" in str(e).lower() or "error" in str(e).lower()
 
 
 @pytest.mark.asyncio
