@@ -1,461 +1,202 @@
-"""
-Test suite for SignalHire MCP Server Tools (13 tools)
+"""The MCP tool surface, exercised through an in-memory client.
 
-Tests all tool invocations with various input scenarios including:
-- Success cases with valid inputs
-- Error cases with invalid/missing parameters
-- Edge cases and boundary conditions
+This is the FastMCP-documented testing pattern: wrap the server in a `Client`
+and assert on `result.data`.
 """
+
+from __future__ import annotations
+
 import pytest
-from unittest.mock import Mock, AsyncMock, patch
+
+from tests.conftest import SAMPLE_CALLBACK
+
+EXPECTED_TOOLS = {
+    "batch_reveal_contacts",
+    "check_credits",
+    "get_enrichment_result",
+    "get_request_status",
+    "list_failed_deliveries",
+    "list_requests",
+    "retry_delivery",
+    "reveal_contact",
+    "scroll_search_results",
+    "search_prospects",
+}
 
 
-@pytest.mark.asyncio
-@pytest.mark.tools
-class TestCoreAPITools:
-    """Test core API tools (5 tools)"""
+async def test_tool_surface(client):
+    tools = {t.name for t in await client.list_tools()}
+    assert tools == EXPECTED_TOOLS
 
-    async def test_search_prospects_basic(self, mcp_client):
-        """Test basic prospect search with minimal parameters"""
-        result = await mcp_client.call_tool(
-            "search_prospects",
-            {"title": "Software Engineer"}
+
+async def test_export_results_is_gone(client):
+    """It was a stub that reported success and did nothing.
+
+    A tool that lies is worse than a missing one, because the agent believes it
+    and stops looking for the data.
+    """
+    tools = {t.name for t in await client.list_tools()}
+    assert "export_results" not in tools
+
+
+async def test_reveal_records_a_correlation_record(client, store, fake_client):
+    result = await client.call_tool(
+        "reveal_contact", {"identifier": "https://linkedin.com/in/someone"}
+    )
+
+    assert result.data["request_id"] == "4242"
+    assert result.data["credits_charged"] == 1
+
+    record = await store.get_request("4242")
+    assert record is not None, "the credit is spent; the record must survive"
+    assert record.identifiers == ["https://linkedin.com/in/someone"]
+    assert fake_client.reveals[0]["callback_url"].startswith("https://signalhire.test")
+
+
+async def test_reveal_sends_the_tenant_scoped_callback_url(client, fake_client):
+    """The URL carries both the tenant and the shared secret.
+
+    The tenant is in the path so an inbound payload routes without parsing it;
+    the secret is a query parameter because SignalHire sends no custom headers.
+    """
+    await client.call_tool("reveal_contact", {"identifier": "a@b.com"})
+    url = fake_client.reveals[0]["callback_url"]
+
+    assert url == "https://signalhire.test/signalhire/callback/default?secret=s3cret"
+
+
+async def test_batch_over_one_hundred_is_rejected_not_split(client):
+    """Silent splitting hides how much was actually submitted — and billed."""
+    with pytest.raises(Exception) as exc:
+        await client.call_tool(
+            "batch_reveal_contacts", {"identifiers": [f"u{i}@x.com" for i in range(101)]}
         )
+    assert "100" in str(exc.value)
 
-        assert "total" in result
-        assert "count" in result
-        assert "profiles" in result
-        assert isinstance(result["profiles"], list)
 
-    async def test_search_prospects_with_location(self, mcp_client):
-        """Test search with location filter"""
-        result = await mcp_client.call_tool(
-            "search_prospects",
-            {
-                "title": "Product Manager",
-                "location": ["San Francisco", "Remote"]
-            }
+async def test_status_for_an_unknown_request(client):
+    result = await client.call_tool("get_request_status", {"request_id": "nope"})
+    assert result.data["status"] == "unknown"
+
+
+async def test_status_reports_awaiting_before_the_callback(client):
+    await client.call_tool("reveal_contact", {"identifier": "a@b.com"})
+
+    result = await client.call_tool("get_request_status", {"request_id": "4242"})
+
+    assert result.data["status"] == "awaiting_callback"
+
+
+async def test_status_and_results_after_a_callback(client, store):
+    await client.call_tool("reveal_contact", {"identifier": "a@b.com"})
+    event = await store.record_event(
+        tenant_id="default", request_id="4242", correlation_id="c1",
+        raw_payload=SAMPLE_CALLBACK,
+    )
+    await store.link_event_to_request("4242", event.event_id)
+
+    status = await client.call_tool("get_request_status", {"request_id": "4242"})
+    assert status.data["status"] == "callback_received"
+    assert status.data["events"][0]["successful"] == 1
+
+    results = await client.call_tool("get_enrichment_result", {"request_id": "4242"})
+    assert results.data["count"] == 3
+    assert results.data["successful"] == 1
+    assert results.data["profiles"][0]["full_name"] == "Jane Welder"
+
+
+async def test_results_are_readable_even_when_delivery_failed(client, store):
+    """Delivery state and readability are independent.
+
+    A parked event still contains the data that was paid for.
+    """
+    from signalhire_mcp.inbox.models import EventState
+
+    await client.call_tool("reveal_contact", {"identifier": "a@b.com"})
+    event = await store.record_event(
+        tenant_id="default", request_id="4242", correlation_id="c1",
+        raw_payload=SAMPLE_CALLBACK,
+    )
+    await store.link_event_to_request("4242", event.event_id)
+    event.state = EventState.FAILED
+    await store.save_event(event)
+
+    results = await client.call_tool("get_enrichment_result", {"request_id": "4242"})
+    assert results.data["successful"] == 1
+
+
+async def test_failed_deliveries_are_listable_and_retryable(client, store):
+    from signalhire_mcp.inbox.models import EventState
+
+    event = await store.record_event(
+        tenant_id="default", request_id="9", correlation_id="c1",
+        raw_payload=SAMPLE_CALLBACK,
+    )
+    event.state = EventState.FAILED
+    event.last_error = "downstream exploded"
+    await store.save_event(event)
+
+    listed = await client.call_tool("list_failed_deliveries", {})
+    assert listed.data["count"] == 1
+    assert listed.data["events"][0]["last_error"] == "downstream exploded"
+
+    retried = await client.call_tool("retry_delivery", {"event_id": event.event_id})
+    assert retried.data["state"] == "received"
+
+
+async def test_retry_of_a_missing_event_is_an_error(client):
+    with pytest.raises(Exception):
+        await client.call_tool("retry_delivery", {"event_id": "nope"})
+
+
+async def test_check_credits_names_the_pool(client):
+    main = await client.call_tool("check_credits", {})
+    assert main.data["credits"] == 1000
+    assert main.data["pool"] == "with_contacts"
+
+    other = await client.call_tool("check_credits", {"without_contacts": True})
+    assert other.data["credits"] == 0
+    assert other.data["pool"] == "without_contacts"
+
+
+async def test_search_requires_at_least_one_filter(client):
+    """An exclude-only search is rejected by SignalHire itself."""
+    with pytest.raises(Exception) as exc:
+        await client.call_tool("search_prospects", {})
+    assert "filter" in str(exc.value).lower()
+
+
+async def test_search_returns_profiles_and_warns_about_the_cursor(client):
+    result = await client.call_tool("search_prospects", {"title": "Welder"})
+    assert result.data["total"] == 1
+    assert result.data["scroll_id"] == "cursor-1"
+    assert "15 seconds" in result.data["note"]
+
+
+async def test_scroll_rejects_a_non_numeric_request_id(client):
+    with pytest.raises(Exception) as exc:
+        await client.call_tool(
+            "scroll_search_results", {"request_id": "abc", "scroll_id": "x"}
         )
-
-        assert result is not None
-        assert "profiles" in result
-
-    async def test_search_prospects_boolean_query(self, mcp_client):
-        """Test search with Boolean operators in title"""
-        result = await mcp_client.call_tool(
-            "search_prospects",
-            {
-                "title": "Software Engineer AND (Python OR Java)",
-                "size": 50
-            }
-        )
-
-        assert "total" in result
-        assert result["count"] >= 0
-
-    async def test_search_prospects_experience_range(self, mcp_client):
-        """Test search with experience filters"""
-        result = await mcp_client.call_tool(
-            "search_prospects",
-            {
-                "title": "Developer",
-                "years_experience_from": 3,
-                "years_experience_to": 10
-            }
-        )
-
-        assert result is not None
-
-    async def test_search_prospects_all_filters(self, mcp_client):
-        """Test search with all available filters"""
-        result = await mcp_client.call_tool(
-            "search_prospects",
-            {
-                "title": "Engineering Manager",
-                "location": ["San Francisco"],
-                "company": "Tech Corp",
-                "keywords": "Python AND AWS",
-                "years_experience_from": 5,
-                "years_experience_to": 15,
-                "open_to_work": True,
-                "size": 25
-            }
-        )
-
-        assert "profiles" in result
-        assert "scroll_id" in result
-
-    async def test_reveal_contact_linkedin_url(self, mcp_client):
-        """Test revealing contact by LinkedIn URL"""
-        result = await mcp_client.call_tool(
-            "reveal_contact",
-            {"identifier": "https://linkedin.com/in/john-doe"}
-        )
-
-        assert "request_id" in result
-        assert result["status"] == "processing"
-        assert "callback_url" in result
-
-    async def test_reveal_contact_email(self, mcp_client):
-        """Test revealing contact by email"""
-        result = await mcp_client.call_tool(
-            "reveal_contact",
-            {"identifier": "john@example.com"}
-        )
-
-        assert "request_id" in result
-        assert result["identifier"] == "john@example.com"
-
-    async def test_reveal_contact_without_contacts(self, mcp_client):
-        """Test revealing profile without contact info (cheaper)"""
-        result = await mcp_client.call_tool(
-            "reveal_contact",
-            {
-                "identifier": "uid_12345",
-                "without_contacts": True
-            }
-        )
-
-        assert "request_id" in result
-
-    async def test_batch_reveal_contacts_small_batch(self, mcp_client):
-        """Test batch reveal with small list"""
-        identifiers = [
-            "https://linkedin.com/in/user1",
-            "https://linkedin.com/in/user2",
-            "user3@example.com"
-        ]
-
-        result = await mcp_client.call_tool(
-            "batch_reveal_contacts",
-            {"identifiers": identifiers}
-        )
-
-        assert "request_id" in result
-        assert result["count"] == 3
-        assert result["status"] == "processing"
-
-    async def test_batch_reveal_contacts_without_contacts(self, mcp_client):
-        """Test batch reveal without contact info"""
-        identifiers = ["uid_1", "uid_2", "uid_3"]
-
-        result = await mcp_client.call_tool(
-            "batch_reveal_contacts",
-            {
-                "identifiers": identifiers,
-                "without_contacts": True
-            }
-        )
-
-        assert "request_id" in result
-
-    async def test_check_credits_default(self, mcp_client):
-        """Test checking credits for normal operations"""
-        result = await mcp_client.call_tool("check_credits", {})
-
-        assert "credits" in result
-        assert result["type"] == "with_contacts"
-        assert isinstance(result["credits"], int)
-
-    async def test_check_credits_without_contacts(self, mcp_client):
-        """Test checking credits for no-contact operations"""
-        result = await mcp_client.call_tool(
-            "check_credits",
-            {"without_contacts": True}
-        )
-
-        assert result["type"] == "no_contacts"
-
-    async def test_scroll_search_results(self, mcp_client):
-        """Test scrolling through search results"""
-        result = await mcp_client.call_tool(
-            "scroll_search_results",
-            {
-                "request_id": "123456",
-                "scroll_id": "scroll_abc"
-            }
-        )
-
-        assert "count" in result
-        assert "profiles" in result
-        assert "scroll_id" in result
-        assert "has_more" in result
-
-
-@pytest.mark.asyncio
-@pytest.mark.tools
-class TestWorkflowTools:
-    """Test workflow tools (5 tools)"""
-
-    async def test_search_and_enrich_basic(self, mcp_client):
-        """Test combined search and enrich workflow"""
-        # Mock search to return profiles
-        import server
-        with patch.object(server.state.client, 'search_prospects') as mock_search:
-            mock_search.return_value = Mock(
-                success=True,
-                data={
-                    "profiles": [{"uid": "uid_1"}, {"uid": "uid_2"}],
-                    "total": 2,
-                    "scrollId": "scroll_1",
-                    "requestId": "req_1"
-                }
-            )
-
-            result = await mcp_client.call_tool(
-                "search_and_enrich",
-                {
-                    "title": "Software Engineer",
-                    "max_results": 10
-                }
-            )
-
-            assert "search_total" in result
-            assert "enrichment_request_id" in result
-            assert result["status"] == "processing"
-
-    async def test_search_and_enrich_with_location(self, mcp_client):
-        """Test search and enrich with location filter"""
-        import server
-        with patch.object(server.state.client, 'search_prospects') as mock_search:
-            mock_search.return_value = Mock(
-                success=True,
-                data={
-                    "profiles": [{"uid": "uid_1"}],
-                    "total": 1,
-                    "scrollId": "scroll_1",
-                    "requestId": "req_1"
-                }
-            )
-
-            result = await mcp_client.call_tool(
-                "search_and_enrich",
-                {
-                    "title": "Developer",
-                    "location": ["Remote"],
-                    "max_results": 25
-                }
-            )
-
-            assert "profiles_found" in result
-
-    async def test_enrich_linkedin_profile(self, mcp_client):
-        """Test enriching single LinkedIn profile"""
-        result = await mcp_client.call_tool(
-            "enrich_linkedin_profile",
-            {"linkedin_url": "https://linkedin.com/in/test-user"}
-        )
-
-        assert "request_id" in result
-        assert "profile_url" in result
-        assert result["status"] == "processing"
-        assert "credits_remaining" in result
-
-    async def test_validate_email_valid(self, mcp_client):
-        """Test email validation for valid email"""
-        result = await mcp_client.call_tool(
-            "validate_email",
-            {"email": "valid@example.com"}
-        )
-
-        assert "email" in result
-        assert "valid" in result
-        assert "confidence" in result
-
-    async def test_validate_email_invalid(self, mcp_client):
-        """Test email validation for invalid email"""
-        import server
-        with patch.object(server.state.client, 'reveal_contact_by_identifier') as mock_reveal:
-            mock_reveal.return_value = Mock(
-                success=False,
-                error="Email not found"
-            )
-
-            result = await mcp_client.call_tool(
-                "validate_email",
-                {"email": "notfound@example.com"}
-            )
-
-            assert result["valid"] == False
-            assert "reason" in result
-
-    async def test_export_results_json(self, mcp_client):
-        """Test exporting results as JSON"""
-        result = await mcp_client.call_tool(
-            "export_results",
-            {
-                "request_id": "req_123",
-                "format": "json"
-            }
-        )
-
-        assert "request_id" in result
-        assert result["format"] == "json"
-
-    async def test_export_results_csv(self, mcp_client):
-        """Test exporting results as CSV"""
-        result = await mcp_client.call_tool(
-            "export_results",
-            {
-                "request_id": "req_456",
-                "format": "csv"
-            }
-        )
-
-        assert result["format"] == "csv"
-
-    async def test_get_search_suggestions(self, mcp_client):
-        """Test getting search query suggestions"""
-        result = await mcp_client.call_tool(
-            "get_search_suggestions",
-            {"query": "Python Developer"}
-        )
-
-        assert "items" in result  # wrapper wraps list as {"items": [...]}
-        assert isinstance(result["items"], list)
-        assert len(result["items"]) > 0
-        assert all(isinstance(s, str) for s in result["items"])
-
-
-@pytest.mark.asyncio
-@pytest.mark.tools
-class TestManagementTools:
-    """Test management tools (3 tools)"""
-
-    async def test_get_request_status(self, mcp_client):
-        """Test checking request status"""
-        result = await mcp_client.call_tool(
-            "get_request_status",
-            {"request_id": "test_req_123"}
-        )
-
-        assert "status" in result
-        assert result["status"] in ["processing", "completed", "failed", "unknown"]
-
-    async def test_list_requests(self, mcp_client):
-        """Test listing recent requests"""
-        result = await mcp_client.call_tool(
-            "list_requests",
-            {"limit": 10}
-        )
-
-        assert "requests" in result or isinstance(result, dict)
-
-    async def test_list_requests_custom_limit(self, mcp_client):
-        """Test listing requests with custom limit"""
-        result = await mcp_client.call_tool(
-            "list_requests",
-            {"limit": 50}
-        )
-
-        assert result is not None
-
-    async def test_clear_cache(self, mcp_client):
-        """Test clearing contact cache"""
-        result = await mcp_client.call_tool("clear_cache", {})
-
-        assert result["status"] == "cleared"
-        assert "message" in result
-
-
-@pytest.mark.asyncio
-@pytest.mark.tools
-@pytest.mark.error_handling
-class TestToolErrorHandling:
-    """Test error handling for all tools"""
-
-    async def test_search_prospects_invalid_experience(self, mcp_client):
-        """Test search with invalid experience range"""
-        # Should handle gracefully even if parameters are out of range
-        try:
-            result = await mcp_client.call_tool(
-                "search_prospects",
-                {
-                    "title": "Developer",
-                    "years_experience_from": -5  # Invalid negative
-                }
-            )
-            # If it doesn't raise, parameters might be validated
-            assert result is not None
-        except Exception as e:
-            # Expected to fail validation
-            assert "experience" in str(e).lower() or "validation" in str(e).lower()
-
-    async def test_reveal_contact_empty_identifier(self, mcp_client):
-        """Test reveal with empty identifier"""
-        try:
-            result = await mcp_client.call_tool(
-                "reveal_contact",
-                {"identifier": ""}
-            )
-            # May accept empty string but should handle it
-            assert result is not None
-        except Exception:
-            # Expected to fail
-            pass
-
-    async def test_batch_reveal_empty_list(self, mcp_client):
-        """Test batch reveal with empty identifiers list"""
-        try:
-            result = await mcp_client.call_tool(
-                "batch_reveal_contacts",
-                {"identifiers": []}
-            )
-            # Should handle empty list gracefully
-            assert result is not None
-        except Exception:
-            # May raise error for empty list
-            pass
-
-    async def test_scroll_invalid_ids(self, mcp_client):
-        """Test scroll with invalid request/scroll IDs"""
-        from fastmcp.exceptions import ToolError
-        import server
-
-        # Non-numeric request_id should fail with validation error
-        try:
-            result = await mcp_client.call_tool(
-                "scroll_search_results",
-                {
-                    "request_id": "invalid",
-                    "scroll_id": "expired"
-                }
-            )
-        except (ValueError, ToolError) as e:
-            assert "invalid" in str(e).lower() or "numeric" in str(e).lower()
-
-    async def test_scroll_expired_scroll_id(self, mcp_client):
-        """Test scroll with expired scrollId"""
-        from fastmcp.exceptions import ToolError
-        import server
-        with patch.object(server.state.client, 'scroll_search') as mock_scroll:
-            mock_scroll.return_value = Mock(
-                success=False,
-                error="scrollId expired"
-            )
-
-            try:
-                result = await mcp_client.call_tool(
-                    "scroll_search_results",
-                    {
-                        "request_id": "999999",
-                        "scroll_id": "expired"
-                    }
-                )
-            except (ValueError, ToolError) as e:
-                assert "expired" in str(e).lower()
-
-    async def test_check_credits_api_failure(self, mcp_client):
-        """Test credits check when API fails"""
-        from fastmcp.exceptions import ToolError
-        import server
-        with patch.object(server.state.client, 'check_credits') as mock_credits:
-            mock_credits.return_value = Mock(
-                success=False,
-                error="API unavailable"
-            )
-
-            try:
-                result = await mcp_client.call_tool("check_credits", {})
-            except (ValueError, ToolError) as e:
-                assert "failed" in str(e).lower() or "unavailable" in str(e).lower()
+    assert "numeric" in str(exc.value).lower()
+
+
+async def test_list_requests(client):
+    await client.call_tool("reveal_contact", {"identifier": "a@b.com"})
+    result = await client.call_tool("list_requests", {})
+    assert result.data["count"] == 1
+    assert result.data["requests"][0]["request_id"] == "4242"
+
+
+async def test_no_tool_accepts_a_tenant_argument(client):
+    """Tenant must come from verified claims, never from the model.
+
+    A `tenant_id` parameter would let any caller spend another customer's
+    credits by asking for them.
+    """
+    for tool in await client.list_tools():
+        # `input_schema` is the MCP SDK v2 name; `inputSchema` is bridged with a
+        # deprecation warning and will stop working.
+        properties = (tool.input_schema or {}).get("properties", {})
+        assert "tenant_id" not in properties, f"{tool.name} exposes tenant_id"
+        assert "tenant" not in properties, f"{tool.name} exposes tenant"

@@ -18,6 +18,19 @@
 *credential*
 *.key
 *.pem
+
+# ============================================
+# PRIVACY: the durable callback inbox
+# ============================================
+# These directories hold raw SignalHire callback payloads — revealed personal
+# email addresses and phone numbers for real people. They are operational
+# state, never source, and must not reach a repository under any circumstances.
+.signalhire-data/
+signalhire-data/
+var/lib/signalhire-mcp/
+**/events/pending/
+**/events/done/
+**/events/failed/
 *.p12
 *.pfx
 

@@ -1,347 +1,312 @@
-# SignalHire MCP Server (Standalone)
+# SignalHire MCP Server
 
-**FastMCP server for SignalHire API** - Completely standalone with 13 tools, 7 resources, and 8 prompts for contact enrichment and lead generation.
+A FastMCP 4 server for SignalHire contact enrichment, with a **durable callback
+inbox** and **pluggable delivery adapters**.
 
-## 🚀 Quick Start
+One process serves all three surfaces on one port:
 
-### Deployment Options
-
-Choose your deployment method:
-
-1. **FastMCP Cloud** (Recommended for production): Managed hosting with automatic scaling
-   - Quick start: [docs/deployment/DEPLOY.md](docs/deployment/DEPLOY.md) (5-step guide)
-   - Complete guide: [docs/deployment/FASTMCP_CLOUD_DEPLOYMENT.md](docs/deployment/FASTMCP_CLOUD_DEPLOYMENT.md)
-   - Requires: GitHub account, SignalHire API key, external callback server
-
-2. **Local Development** (For testing and development): Run on your machine
-   - Quick start: [docs/setup/QUICKSTART.md](docs/setup/QUICKSTART.md)
-   - Requires: Python 3.10+, SignalHire API key
-
-### Local Development Setup
-
-### 1. Install Dependencies
-
-```bash
-cd /home/gotime2022/Projects/Mcp-Servers/signalhire
-pip install -r requirements.txt
-```
-
-Or use the automated installer:
-
-```bash
-chmod +x install.sh
-./install.sh
-```
-
-### 2. Configure Environment (Self-Contained)
-
-The server automatically loads `.env` from its own directory:
-
-```bash
-# Copy the example file
-cp .env.example .env
-
-# Edit with your API key
-nano .env
-```
-
-Add your SignalHire API key and callback server URL in the `.env` file:
-
-```bash
-# Your SignalHire API key
-SIGNALHIRE_API_KEY=your_actual_api_key_here
-
-# Your external callback server (e.g., DigitalOcean)
-EXTERNAL_CALLBACK_URL=https://your-callback-server.com/signalhire/callback
-```
-
-**That's it!** The server is completely self-contained - no global environment variables needed.
-
-**Using an external callback server?** See [EXTERNAL_CALLBACK_SETUP.md](EXTERNAL_CALLBACK_SETUP.md) for detailed configuration.
-
-### 3. Run the Server
-
-```bash
-python server.py
-```
-
-You should see:
-```
-✅ SignalHire MCP Server started successfully
-📡 Webhook callback URL: http://localhost:8000/signalhire/callback
-```
-
-### 4. Install in Claude Code
-
-The `.mcp.json` is already configured for self-contained operation:
-
-```bash
-cd /home/gotime2022/Projects/Mcp-Servers/signalhire
-fastmcp install claude-code .mcp.json
-```
-
-**No environment variables to configure!** The server loads its `.env` file automatically.
-
-Restart Claude Code and the server will be ready to use.
-
-## 📦 What's Included
-
-### 13 MCP Tools
-
-**Core API (5)**:
-1. `search_prospects` - Search 900M+ profiles
-2. `reveal_contact` - Get contact info for profile
-3. `batch_reveal_contacts` - Bulk enrichment
-4. `check_credits` - View remaining credits
-5. `scroll_search_results` - Paginate search results
-
-**Workflows (5)**:
-6. `search_and_enrich` - Combined search + enrichment
-7. `enrich_linkedin_profile` - Single profile enrichment
-8. `validate_email` - Email validation
-9. `export_results` - Export to CSV/JSON/Excel
-10. `get_search_suggestions` - Query suggestions
-
-**Management (3)**:
-11. `get_request_status` - Check request status
-12. `list_requests` - View request history
-13. `clear_cache` - Clear local cache
-
-### 7 MCP Resources
-
-1. `signalhire://contacts/{uid}` - Get cached contact
-2. `signalhire://cache/stats` - Cache statistics
-3. `signalhire://recent-searches` - Recent searches
-4. `signalhire://credits` - Current credits
-5. `signalhire://rate-limits` - Rate limit status
-6. `signalhire://requests/history` - Request history
-7. `signalhire://account` - Account info
-
-### 8 MCP Prompts
-
-1. `enrich-linkedin-profile` - Profile enrichment guide
-2. `bulk-enrich-contacts` - Bulk enrichment guide
-3. `search-candidates-by-criteria` - Search guide
-4. `search-and-enrich-workflow` - Complete workflow
-5. `manage-credits` - Credit management
-6. `validate-bulk-emails` - Email validation
-7. `export-search-results` - Export guide
-8. `troubleshoot-webhook` - Webhook debugging
-
-## 🏗️ Architecture
-
-**Standalone Design** - All code self-contained:
-
-```
-signalhire/
-├── server.py              # Main MCP server (837 lines)
-├── lib/                   # Core functionality (14 files, ~3000 lines)
-│   ├── signalhire_client.py  # API client (57 KB)
-│   ├── callback_server.py    # FastAPI webhook server (11 KB)
-│   ├── contact_cache.py      # Local caching
-│   ├── config.py             # Configuration management
-│   └── ... (10 more files)
-├── models/                # Pydantic models (9 files, ~1500 lines)
-│   ├── person_callback.py
-│   ├── operations.py
-│   └── ... (7 more files)
-├── storage/               # Storage adapters (3 files, ~600 lines)
-│   ├── mem0_adapter.py
-│   └── supabase_adapter.py
-├── requirements.txt       # All dependencies
-├── .mcp.json             # MCP configuration
-└── README.md             # This file
-```
-
-**Total:** ~7,000 lines of production-ready code, all consolidated!
-
-### Why Standalone & Self-Contained?
-
-✅ **No external dependencies** - No `signalhireagent` package needed
-✅ **Self-contained configuration** - `.env` file in server directory, no global env vars
-✅ **FastMCP Cloud ready** - Single directory deployment with config included
-✅ **Easy maintenance** - All code and config in one place
-✅ **Simple deployment** - Just push to GitHub and deploy
-✅ **Portable** - Copy the directory anywhere, it just works
-
-## 📝 Usage Examples
-
-### In Claude Code
-
-```
-User: "Search SignalHire for 25 Python engineers in San Francisco"
-Claude: *calls search_prospects tool*
-Claude: "Found 1,234 matching profiles. Here are the first 25..."
-
-User: "Enrich them all"
-Claude: *calls batch_reveal_contacts*
-Claude: "Enrichment started. Request ID: abc123"
-```
-
-### With FastMCP CLI
-
-```bash
-# Run with inspector
-fastmcp dev server.py
-
-# Run in HTTP mode
-fastmcp run server.py --transport http --port 8000
-```
-
-## 🚢 Deployment
-
-### Local Development
-
-```bash
-# Run from this directory
-python server.py
-```
-
-### FastMCP Cloud Deployment
-
-**Self-contained deployment - your `.env` file is included!**
-
-1. **Prepare for deployment:**
-   ```bash
-   cd /home/gotime2022/Projects/Mcp-Servers/signalhire
-
-   # Make sure .env exists with your API key
-   cp .env.example .env
-   nano .env  # Add your SIGNALHIRE_API_KEY
-
-   # Initialize git if not already done
-   git init
-   git add .
-   git commit -m "Initial SignalHire MCP server"
-   git push origin main
-   ```
-
-2. **Deploy to FastMCP Cloud:**
-   - Go to https://fastmcp.cloud
-   - Connect your GitHub repository
-   - **No environment variables needed!** (`.env` file is included)
-   - Deploy!
-
-3. **Use the hosted URL:**
-   ```json
-   {
-     "mcpServers": {
-       "signalhire": {
-         "url": "https://your-server.fastmcp.cloud"
-       }
-     }
-   }
-   ```
-
-**Note:** Make sure your `.env` file is committed to your repo (it's safe since it's in your private repo). If you prefer, you can still use FastMCP Cloud's environment variables feature instead.
-
-### HTTP Mode (for remote access)
-
-```bash
-fastmcp run server.py --transport http --port 8000
-```
-
-Access at: `http://localhost:8000/mcp`
-
-### Docker Deployment
-
-```bash
-# Build image
-docker build -t signalhire-mcp .
-
-# Run container
-docker run -p 8000:8000 --env-file .env signalhire-mcp
-```
-
-## 🐛 Troubleshooting
-
-### "Module not found" errors
-
-Make sure all dependencies are installed:
-```bash
-pip install -r requirements.txt
-```
-
-### "Webhook not receiving callbacks"
-
-Check callback server:
-```bash
-curl http://localhost:8000/health
-```
-
-If behind firewall, use ngrok:
-```bash
-ngrok http 8000
-```
-
-### Server won't start
-
-1. Check Python version (need >= 3.10):
-   ```bash
-   python3 --version
-   ```
-
-2. Test syntax:
-   ```bash
-   python3 -m py_compile server.py
-   ```
-
-3. Check environment variables:
-   ```bash
-   cat .env
-   ```
-
-## 📚 Documentation
-
-### Organized Documentation
-
-All documentation is organized in the `docs/` directory:
-
-**Deployment:**
-- [docs/deployment/DEPLOY.md](docs/deployment/DEPLOY.md) - Quick 5-step deployment guide
-- [docs/deployment/FASTMCP_CLOUD_DEPLOYMENT.md](docs/deployment/FASTMCP_CLOUD_DEPLOYMENT.md) - Complete FastMCP Cloud guide
-- [docs/deployment/DEPLOYMENT_CHECKLIST.md](docs/deployment/DEPLOYMENT_CHECKLIST.md) - Comprehensive checklist
-- [docs/deployment/DEPLOYMENT_SUMMARY.md](docs/deployment/DEPLOYMENT_SUMMARY.md) - Configuration overview
-
-**Setup & Configuration:**
-- [docs/setup/QUICKSTART.md](docs/setup/QUICKSTART.md) - Local development quick start
-- [docs/setup/EXTERNAL_CALLBACK_SETUP.md](docs/setup/EXTERNAL_CALLBACK_SETUP.md) - Callback server deployment
-- [docs/setup/STANDALONE_BUILD_REPORT.md](docs/setup/STANDALONE_BUILD_REPORT.md) - Build verification report
-
-**Testing:**
-- [docs/testing/TESTING.md](docs/testing/TESTING.md) - Testing guide
-- [docs/testing/TESTING_REPORT.md](docs/testing/TESTING_REPORT.md) - Test results
-
-### External Resources
-
-- **SignalHire API Docs**: https://www.signalhire.com/api-docs
-- **FastMCP Docs**: https://gofastmcp.com
-- **FastMCP Cloud**: https://fastmcp.cloud
-
-## 🔗 API Limits
-
-- **Rate Limit**: 600 items/minute
-- **Search Concurrency**: 3 concurrent requests max
-- **ScrollId Expiry**: 15 seconds
-- **Daily Limit**: 5,000 reveals/day
-- **Search Profile Limit**: 5,000 profiles/day
-
-## 💡 Best Practices
-
-1. **Use batch operations** for multiple contacts (more efficient)
-2. **Cache results** to avoid redundant API calls
-3. **Monitor credits** before large operations
-4. **Use semantic search** (Mem0) for natural language queries
-5. **Export results** regularly for backup
-
-## 📄 License
-
-Same license as signalhireagent project.
+| Path | Purpose |
+|---|---|
+| `/mcp/` | The MCP endpoint — tools, resources, prompts, skills |
+| `/signalhire/callback/{tenant}` | SignalHire's webhook |
+| `/health` | Liveness plus inbox depth |
 
 ---
 
-**Built with [FastMCP](https://gofastmcp.com) - The fastest way to build MCP servers in Python**
+## Why this was rebuilt
 
-**Architecture**: Standalone (no external packages)
-**Status**: Production-ready
-**FastMCP Cloud**: ✅ Ready for deployment
+SignalHire's reveal API is asynchronous and **bills at submission**. You POST
+identifiers, get a `requestId`, and results arrive minutes later as a webhook.
+The credit is gone the moment you submit — so a callback that is received and
+dropped is money burned for nothing. SignalHire retries a failed callback three
+times and then **discards it permanently**.
+
+The previous design could not hold up its end of that bargain:
+
+- **The webhook receiver was a different process.** A FastAPI app on a daemon
+  thread, or on a separate droplet entirely. Results landed in a process the
+  MCP server could not read.
+- **No handler was ever registered** against that receiver, so every payload
+  was logged and dropped.
+- **No correlation record was written** at submission, so `get_request_status`
+  could only ever answer "unknown" — and it looked up a request id in a cache
+  keyed by candidate uid.
+- **The serverless path acknowledged before persisting.** It returned `200` and
+  then did the real work — Supabase writes, Chromium PDF generation, ATS sync —
+  inside Vercel's `after()`, which the platform kills at the function timeout.
+  The `200` was a promise that was routinely false.
+- **Every failure was `console.error` and `continue`.** No retry, no queue, no
+  record.
+- **No auth.** The deployment listened on `0.0.0.0:8000` with nothing in front.
+  On this server that is not merely a read risk: every reveal tool spends a
+  credit, so an open endpoint is a way to bill the account.
+
+This version fixes the structure, not just the symptoms.
+
+---
+
+## How it works
+
+```
+SignalHire ──POST──▶ /signalhire/callback/{tenant}
+                            │
+                            │  (1) verify shared secret
+                            │  (2) persist raw payload to disk   ← fsync
+                            │  (3) return 200                     ← ~6ms
+                            ▼
+                     durable inbox  (events/pending/)
+                            │
+                            ▼
+                     delivery worker ── retry w/ backoff ──┐
+                            │                              │
+              ┌─────────────┼──────────────┐               │
+              ▼             ▼              ▼               │
+       WebhookAdapter  McpAdapter    McpAdapter            │
+        (StaffHive)     (CATS MCP)   (other ATS)           │
+              │             │              │               │
+              └─────────────┴──────────────┘               │
+                            │                              │
+                  all succeeded → done/      any failed ───┘
+                                             exhausted → failed/ (parked, kept)
+```
+
+**Persist before acknowledging.** The callback handler does no normalisation,
+no adapter work, and no network I/O. It verifies the secret, writes the payload
+with `fsync`, and returns. Measured at ~6ms against a 10-second budget.
+
+**Delivery is separate and retryable.** Adapters are tracked independently: if
+StaffHive accepts an event and the ATS is down, only the ATS is retried.
+Re-delivering to an adapter that already succeeded would duplicate writes.
+
+**Nothing is deleted.** An event that exhausts its retries is *parked*, not
+dropped. The payload stays readable, and `retry_delivery()` requeues it.
+
+---
+
+## Adapters — CATS is not special
+
+An adapter writes an enrichment result somewhere. There are two kinds, and
+neither contains vendor-specific code:
+
+- **`webhook`** — POST the normalised result to a URL.
+- **`mcp`** — call a tool on another MCP server.
+
+CATS is reached through the `mcp` adapter, pointed at the existing
+[CATS MCP server](../cats-mcp-server). There is no CATS HTTP client in this
+repository and there should never be one — duplicating a maintained 200-tool
+server here would mean two implementations drifting apart. Adding Bullhorn or
+Greenhouse later is a config entry, not an integration.
+
+```json
+{
+  "acme": {
+    "signalhire_api_key_env": "ACME_SIGNALHIRE_KEY",
+    "adapters": [
+      {"type": "webhook", "name": "staffhive",
+       "url": "https://staffhive.example.com/api/webhooks/signalhire/relay",
+       "secret_env": "STAFFHIVE_RELAY_SECRET"},
+      {"type": "mcp", "name": "cats",
+       "server": "http://127.0.0.1:3000/mcp/",
+       "tool": "upsert_candidate_from_enrichment",
+       "auth_token_env": "CATS_MCP_TOKEN"}
+    ]
+  }
+}
+```
+
+Secrets are referenced by environment variable name, never inlined, so this
+value is safe in a config file.
+
+### Mounting vs. calling
+
+Two different things, often confused:
+
+- `SIGNALHIRE_MOUNTS` exposes another server's tools *to agents* through this
+  endpoint (`ats_*`). That is composition, for discovery.
+- The `mcp` **adapter** calls a remote server from the delivery worker.
+
+They are configured separately on purpose — you may well want to write to CATS
+without exposing its 200 tools to whatever model is connected here.
+
+---
+
+## Multi-tenancy
+
+One process can serve several customers. Two models, both supported by the same
+code path:
+
+- **BYOK** — each customer brings their own SignalHire account
+  (`signalhire_api_key_env` per tenant). Clean isolation and billing.
+- **Agency** — you own one key. Note that SignalHire has **no sub-account
+  model**: seats share one credit pool *and share all revealed contacts*. So
+  this server is the only place spend can be attributed per customer, and data
+  isolation must be enforced by the consuming application.
+
+**The tenant identifier comes from verified token claims, never from a tool
+argument.** A `tenant_id` parameter would be model-controlled — any caller could
+spend another customer's credits by asking. A test enforces that no tool exposes
+one. Multi-tenant routing therefore requires `SIGNALHIRE_AUTH_MODE=jwt`.
+
+---
+
+## Quick start
+
+```bash
+# Install (fastmcp 4 is a prerelease; exact pins keep that scoped to fastmcp)
+uv pip install --prerelease=allow -e ".[dev]"
+
+cp .env.example .env    # then fill it in
+```
+
+Minimum viable `.env` for local development:
+
+```bash
+SIGNALHIRE_API_KEY=your_key
+SIGNALHIRE_TRANSPORT=stdio          # stdio needs no auth mode
+SIGNALHIRE_DATA_DIR=./.signalhire-data
+SIGNALHIRE_PUBLIC_BASE_URL=https://your-tunnel.example.com
+SIGNALHIRE_CALLBACK_SECRET=$(openssl rand -hex 32)
+```
+
+Run it:
+
+```bash
+fastmcp run fastmcp.json           # or: python -m signalhire_mcp.app
+fastmcp inspect fastmcp.json --format fastmcp   # see the whole surface
+```
+
+> Reveals need a **publicly reachable HTTPS** callback URL. For local work use a
+> tunnel (`ngrok http 8000`) and set `SIGNALHIRE_PUBLIC_BASE_URL` to it.
+> Without one, every reveal is billed by SignalHire and then discarded.
+
+---
+
+## Deployment
+
+```bash
+export SIGNALHIRE_API_KEY='...'
+export SIGNALHIRE_PUBLIC_BASE_URL='https://signalhire.example.com'
+export SIGNALHIRE_CALLBACK_SECRET="$(openssl rand -hex 32)"
+export SIGNALHIRE_AUTH_MODE='platform'
+bash deploy-to-droplet.sh
+```
+
+This deploys **one** systemd service. There is no separate callback service —
+that split is what broke the callback.
+
+The server **refuses to start** on HTTP if you have not said who authenticates
+callers (`SIGNALHIRE_AUTH_MODE`) or set `SIGNALHIRE_CALLBACK_SECRET`. Both
+refusals are deliberate: guessing wrong in either direction is harmful, and the
+callback route cannot sit behind MCP auth because SignalHire sends no bearer
+token.
+
+Put TLS in front (nginx/caddy). SignalHire requires a valid certificate.
+
+---
+
+## Tools
+
+| Tool | Notes |
+|---|---|
+| `search_prospects` | Free. Returns UIDs, no contacts. |
+| `scroll_search_results` | Cursor expires in 15s; fails fast rather than retrying. |
+| `reveal_contact` | 1 credit, charged at submission. |
+| `batch_reveal_contacts` | Up to 100. Rejects larger batches rather than splitting silently. |
+| `check_credits` | Names which of the two pools it read. |
+| `get_request_status` | Reads the durable inbox — correct across restarts. |
+| `get_enrichment_result` | The stored profiles. No second call to SignalHire. |
+| `list_requests` | Recent submissions. |
+| `list_failed_deliveries` | Parked callbacks, with the failing adapter named. |
+| `retry_delivery` | Requeue a parked callback. |
+
+`export_results` was removed. It was a stub that returned `"to be implemented"`
+while reporting success — a tool that lies is worse than a missing one, because
+the agent believes it.
+
+### The two credit pools
+
+The most common confusing error from this API. SignalHire keeps two independent
+balances; `without_contacts=true` draws on a pool that is **zero on most
+accounts**. A `402` almost never means the account is empty — it means the
+request went to the wrong pool. Leave `without_contacts` at its default.
+
+---
+
+## Skills
+
+The server ships a client-facing skill and serves it as an MCP resource, so a
+connecting client can learn the workflow without a local install:
+
+```
+skill://signalhire-enrichment/SKILL.md
+```
+
+Add your own with `SIGNALHIRE_SKILLS_DIR`.
+
+---
+
+## Testing
+
+```bash
+pytest tests/ -q      # 86 tests
+```
+
+Two patterns, because the FastMCP docs cover one of them:
+
+- **Tools** use the documented in-memory client: `Client(transport=mcp)`,
+  assert on `result.data`.
+- **Custom HTTP routes** — the callback, which the docs say nothing about — run
+  the real ASGI app through `httpx2.ASGITransport` with the Starlette lifespan
+  driven in its own task. (Its own task because MCP's streamable-HTTP manager
+  opens an anyio task group, and a task group must be exited by the task that
+  entered it; pytest-asyncio sets up and tears down async fixtures in
+  *different* tasks.)
+
+Nothing in the suite touches the network or can spend credits.
+
+---
+
+## Troubleshooting
+
+**Results never arrive.** Do not resubmit — the credit is already spent.
+
+1. `get_request_status(request_id)` — distinguishes "not yet" from "broken".
+2. `list_failed_deliveries()` — parked callbacks with the last error.
+3. `retry_delivery(event_id)` once the downstream problem is fixed.
+4. `GET /health` — inbox depth and whether the worker is running.
+
+**SignalHire never called back at all.** The cause is on the network path:
+a callback URL that is not publicly reachable, a TLS certificate the vendor
+rejects, or a mismatched secret returning 401. Check the server log for
+rejected callbacks — SignalHire gives up after three attempts.
+
+**`Value is an unresolved placeholder`.** A `${VAR}` in `fastmcp.json` whose
+variable is unset. Note there is **no `${VAR:-default}` syntax** — FastMCP looks
+up the entire capture as a variable name, so `${VAR:-x}` searches for a variable
+literally called `VAR:-x` and the placeholder survives *even when `VAR` is set*.
+Use plain `${VAR}`; defaults belong in `config.Settings`.
+
+---
+
+## Layout
+
+```
+src/signalhire_mcp/
+  app.py            entrypoint (fastmcp.json points here)
+  server.py         create_server() — the single factory
+  config.py         Settings
+  runtime.py        shared objects
+  routes.py         the callback + health endpoints
+  tools.py          MCP tools
+  resources.py      resources and prompts
+  observability.py  middleware (and why there is so little)
+  auth/             caller authentication, verified claims
+  credentials/      SignalHire credential resolution (leak-guarded)
+  inbox/            the durable store
+  delivery/         adapters, tenant registry, retry worker
+  skills/           client-facing skill, served over MCP
+```
+
+`create_server()` is the only place a `FastMCP` is constructed and the only
+place components are registered — so importing the module always yields a fully
+populated server, which is what `fastmcp inspect` and every test rely on.

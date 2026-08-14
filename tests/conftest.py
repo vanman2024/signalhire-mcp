@@ -1,270 +1,249 @@
+"""Shared fixtures.
+
+Every fixture builds the server through `create_server()` with injected
+collaborators — a temp-directory store, a stub credential provider, a fake
+SignalHire client. Nothing here touches the network or the real environment, so
+the suite is safe to run anywhere and cannot spend credits.
 """
-Test fixtures for SignalHire MCP Server
-Provides mcp_client fixture using FastMCP v3 Client testing pattern
-"""
-import json
-import os
-import sys
+
+from __future__ import annotations
+
+from typing import Any
+
 import pytest
-from pathlib import Path
-from unittest.mock import Mock, AsyncMock, patch
 
-# Add parent directory to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
+from signalhire_mcp.config import AuthMode, Settings, Transport
+from signalhire_mcp.credentials.base import SignalHireCredential
+from signalhire_mcp.delivery.base import DeliveryResult
+from signalhire_mcp.delivery.registry import TenantRegistry
+from signalhire_mcp.inbox.store import InboxStore
+from signalhire_mcp.server import create_server
 
-# Set up test environment variables before any imports
-os.environ["SIGNALHIRE_API_KEY"] = "test_fake_api_key_for_testing_only"
-os.environ["EXTERNAL_CALLBACK_URL"] = "https://test-callback.example.com/webhook"
-
-from fastmcp import Client
-
-
-class MCPClientWrapper:
-    """Wrapper around FastMCP v3 Client that provides a test-friendly interface.
-
-    Normalizes FastMCP v3 return types into simple Python types
-    (dicts, lists, strings) that tests can assert against easily.
-    """
-
-    def __init__(self, client: Client):
-        self._client = client
-
-    async def call_tool(self, name: str, arguments: dict) -> dict:
-        """Call a tool and return the result as a dict."""
-        result = await self._client.call_tool(name, arguments)
-        if result.is_error:
-            raise ValueError(f"Tool error: {result.data}")
-        data = result.data
-        if isinstance(data, str):
-            try:
-                return json.loads(data)
-            except json.JSONDecodeError:
-                return {"result": data}
-        if isinstance(data, dict):
-            return data
-        if isinstance(data, list):
-            return {"items": data}
-        return {"result": data}
-
-    async def read_resource(self, uri: str):
-        """Read a resource and return parsed JSON (dict or list)."""
-        result = await self._client.read_resource(uri)
-        # FastMCP v3 returns list[TextResourceContents | BlobResourceContents]
-        if isinstance(result, list) and len(result) > 0:
-            item = result[0]
-            text = getattr(item, "text", None)
-            if text is not None:
-                try:
-                    return json.loads(text)
-                except json.JSONDecodeError:
-                    return {"content": text}
-        if isinstance(result, str):
-            try:
-                return json.loads(result)
-            except json.JSONDecodeError:
-                return {"content": result}
-        return result
-
-    async def list_tools(self) -> list[dict]:
-        """List all tools and return as list of dicts."""
-        tools = await self._client.list_tools()
-        return [
-            {
-                "name": t.name,
-                "description": t.description,
-                "inputSchema": t.inputSchema,
-            }
-            for t in tools
-        ]
-
-    async def list_resources(self) -> list[dict]:
-        """List all resources and return as list of dicts."""
-        resources = await self._client.list_resources()
-        return [
-            {
-                "uri": str(r.uri),
-                "name": r.name,
-                "description": r.description,
-                "mimeType": r.mimeType,
-            }
-            for r in resources
-        ]
-
-    async def list_prompts(self) -> list[dict]:
-        """List all prompts and return as list of dicts."""
-        prompts = await self._client.list_prompts()
-        return [
-            {
-                "name": p.name,
-                "description": p.description,
-                "arguments": [
-                    {"name": a.name, "required": a.required}
-                    for a in (p.arguments or [])
-                ],
-            }
-            for p in prompts
-        ]
-
-    async def get_prompt(self, name: str, arguments: dict) -> str:
-        """Get a prompt and return the rendered text as a string."""
-        result = await self._client.get_prompt(name, arguments)
-        # GetPromptResult has .messages list of PromptMessage
-        texts = []
-        for msg in result.messages:
-            if hasattr(msg.content, "text"):
-                texts.append(msg.content.text)
-            elif isinstance(msg.content, str):
-                texts.append(msg.content)
-        return "\n".join(texts)
-
-
-def _create_mock_client():
-    """Create a fully configured mock SignalHire client."""
-    mock_client = Mock()
-    mock_client.search_prospects = AsyncMock(return_value=Mock(
-        success=True,
-        data={"profiles": [], "total": 0, "scrollId": "test_scroll", "requestId": "test_req"}
-    ))
-    mock_client.reveal_contact_by_identifier = AsyncMock(return_value=Mock(
-        success=True,
-        data={"request_id": "test_reveal_req", "requestId": "test_reveal_req"}
-    ))
-    mock_client.batch_reveal_contacts = AsyncMock(return_value=Mock(
-        success=True,
-        data={"request_id": "test_batch_req"}
-    ))
-    mock_client.check_credits = AsyncMock(return_value=Mock(
-        success=True,
-        data={"credits": 1000}
-    ))
-    mock_client.scroll_search = AsyncMock(return_value=Mock(
-        success=True,
-        data={"profiles": [], "scrollId": "next_scroll"}
-    ))
-    mock_client.rate_limiter = Mock(
-        daily_limit=5000,
-        daily_usage={"credits_used": 0, "reveals": 0, "search_profiles": 0, "last_reset": "2024-01-01"},
-    )
-    mock_client.start_session = AsyncMock()
-    mock_client.close_session = AsyncMock()
-    return mock_client
-
-
-@pytest.fixture
-async def mcp_client():
-    """
-    Create in-memory MCP client for testing.
-
-    Uses FastMCP v3 Client to create a test client
-    without starting an actual HTTP server.
-    Patches state AFTER lifespan runs to override real client.
-    """
-    # Import server after env vars are set
-    import server
-
-    # Create test client using FastMCP v3 Client
-    # The lifespan will run and create real state objects
-    async with Client(server.mcp) as client:
-        # Now patch state AFTER lifespan has run
-        mock_client = _create_mock_client()
-        original_client = server.state.client
-        server.state.client = mock_client
-
-        # Mock cache
-        mock_cache = Mock()
-        mock_cache.get = Mock(return_value=None)
-        mock_cache.clear = Mock()
-        mock_cache._cache = {}
-        mock_cache.get_stats = Mock(return_value={})
-        original_cache = server.state.cache
-        server.state.cache = mock_cache
-
-        # Mock callback_server
-        mock_cb = Mock()
-        mock_cb._request_handlers = {}
-        original_cb = server.state.callback_server
-        server.state.callback_server = mock_cb
-
-        try:
-            yield MCPClientWrapper(client)
-        finally:
-            # Restore original state for clean teardown
-            server.state.client = original_client
-            server.state.cache = original_cache
-            server.state.callback_server = original_cb
-
-
-@pytest.fixture
-def mock_signalhire_api():
-    """
-    Mock SignalHire API responses for testing actual API integration.
-    Use this fixture when you need to simulate different API responses.
-    """
-    return {
-        "search_success": {
-            "profiles": [
-                {
-                    "uid": "test_uid_1",
-                    "name": "John Doe",
-                    "title": "Software Engineer",
-                    "company": "Tech Corp"
-                }
+SAMPLE_CALLBACK: list[dict[str, Any]] = [
+    {
+        "item": "https://www.linkedin.com/in/jane-welder",
+        "status": "success",
+        "candidate": {
+            "uid": "a" * 32,
+            "fullName": "Jane Welder",
+            "headLine": "Red Seal Welder at Acme Fabrication",
+            "summary": "15 years structural welding.",
+            "photo": {"url": "https://cdn.example.com/jane.jpg"},
+            "locations": [{"name": "Calgary, Alberta, Canada"}],
+            "skills": ["GMAW", "TIG", "Blueprint Reading"],
+            "contacts": [
+                {"type": "email", "value": "jane.work@acme.com", "rating": "100",
+                 "subType": "work"},
+                {"type": "email", "value": "jane@gmail.com", "rating": "100",
+                 "subType": "personal"},
+                {"type": "phone", "value": "+1 403-555-0100", "rating": "100",
+                 "subType": "work_phone"},
             ],
+            "social": [
+                {"type": "li", "link": "https://www.linkedin.com/in/jane-welder",
+                 "rating": "100"}
+            ],
+            "experience": [
+                {"position": "Welder", "company": "Acme Fabrication", "current": True,
+                 "started": "2015-01-01T00:00:00+00:00", "ended": None,
+                 "summary": "Structural steel."},
+                {"position": "Apprentice", "company": "Old Shop", "current": False,
+                 "started": "2010-01-01T00:00:00+00:00",
+                 "ended": "2014-12-31T00:00:00+00:00"},
+            ],
+            "education": [
+                {"university": "SAIT", "faculty": "Welding", "degree": ["Red Seal"],
+                 "startedYear": 2008, "endedYear": 2010}
+            ],
+        },
+    },
+    {"item": "nobody@example.com", "status": "failed"},
+    {"item": "b" * 32, "status": "credits_are_over"},
+]
+
+
+class StubCredentials:
+    """A credential provider that never reads the environment."""
+
+    def __init__(self, tenant_id: str = "default") -> None:
+        self._tenant_id = tenant_id
+
+    async def resolve(self, context: Any | None = None) -> SignalHireCredential:
+        return SignalHireCredential(api_key="stub-key", tenant_id=self._tenant_id)
+
+    def describe(self) -> str:
+        return "stub"
+
+
+class RecordingAdapter:
+    """Adapter that records what it received and can be told to fail."""
+
+    def __init__(self, name: str = "recorder", fail_times: int = 0) -> None:
+        self.name = name
+        self.calls: list[tuple[str, int]] = []
+        self.profiles: list[Any] = []
+        self._fail_times = fail_times
+
+    async def deliver(self, event, profiles) -> DeliveryResult:
+        self.calls.append((event.event_id, len(profiles)))
+        self.profiles = profiles
+        if self._fail_times > 0:
+            self._fail_times -= 1
+            return DeliveryResult.failure("stubbed failure")
+        return DeliveryResult.success("stored")
+
+    def describe(self) -> str:
+        return f"recording adapter {self.name}"
+
+    async def aclose(self) -> None:
+        return None
+
+
+class FakeSignalHireClient:
+    """Stands in for the REST client. Records calls, returns canned answers."""
+
+    def __init__(self) -> None:
+        self.reveals: list[dict[str, Any]] = []
+        self.next_request_id = 4242
+        self.credits = 1000
+
+    async def start(self) -> None:
+        return None
+
+    async def aclose(self) -> None:
+        return None
+
+    async def reveal(self, credential, *, items, callback_url, without_contacts=False) -> str:
+        self.reveals.append(
+            {"items": list(items), "callback_url": callback_url,
+             "without_contacts": without_contacts, "tenant": credential.tenant_id}
+        )
+        return str(self.next_request_id)
+
+    async def check_credits(self, credential, *, without_contacts=False) -> int:
+        return 0 if without_contacts else self.credits
+
+    async def search_by_query(self, credential, criteria, *, size=25) -> dict[str, Any]:
+        return {
+            "requestId": 7,
             "total": 1,
-            "scrollId": "scroll_123",
-            "requestId": "req_123"
-        },
-        "reveal_success": {
-            "request_id": "reveal_123",
-            "status": "processing"
-        },
-        "credits_response": {
-            "credits": 500
-        },
-        "error_response": {
-            "error": "API Error",
-            "message": "Invalid request"
+            "scrollId": "cursor-1",
+            "profiles": [{"uid": "c" * 32, "fullName": "Search Result"}],
         }
-    }
+
+    async def scroll_search(self, credential, request_id, scroll_id) -> dict[str, Any]:
+        return {"requestId": request_id, "total": 1, "profiles": [], "scrollId": None}
 
 
 @pytest.fixture
-def sample_profiles():
-    """Sample profile data for testing"""
-    return [
-        {
-            "uid": "uid_001",
-            "name": "Alice Smith",
-            "title": "Senior Software Engineer",
-            "company": "Tech Inc",
-            "location": "San Francisco, CA",
-            "linkedin_url": "https://linkedin.com/in/alice-smith"
-        },
-        {
-            "uid": "uid_002",
-            "name": "Bob Johnson",
-            "title": "Engineering Manager",
-            "company": "StartupCo",
-            "location": "New York, NY",
-            "linkedin_url": "https://linkedin.com/in/bob-johnson"
-        },
-        {
-            "uid": "uid_003",
-            "name": "Carol White",
-            "title": "DevOps Engineer",
-            "company": "CloudTech",
-            "location": "Remote",
-            "linkedin_url": "https://linkedin.com/in/carol-white"
-        }
-    ]
+def settings(tmp_path) -> Settings:
+    return Settings(
+        transport=Transport.HTTP,
+        auth_mode=AuthMode.NONE,
+        data_dir=tmp_path / "inbox",
+        api_key="stub-key",
+        public_base_url="https://signalhire.test",
+        callback_secret="s3cret",
+        worker_enabled=False,  # tests drive the worker explicitly
+        backoff_base_seconds=0.01,
+        max_backoff_seconds=0.02,
+        log_timing=False,
+    )
 
 
 @pytest.fixture
-def sample_identifiers():
-    """Sample identifiers for batch operations"""
-    return [
-        "https://linkedin.com/in/test-user-1",
-        "https://linkedin.com/in/test-user-2",
-        "test@example.com",
-        "uid_12345"
-    ]
+def store(settings) -> InboxStore:
+    store = InboxStore(settings.data_dir)
+    store.initialize()
+    return store
+
+
+@pytest.fixture
+def adapter() -> RecordingAdapter:
+    return RecordingAdapter()
+
+
+@pytest.fixture
+def registry(adapter) -> TenantRegistry:
+    registry = TenantRegistry({"default": {"adapters": []}, "acme": {"adapters": []}})
+    # Inject the stub directly, bypassing config-driven construction.
+    registry._adapters["default"] = [adapter]
+    registry._adapters["acme"] = [adapter]
+    return registry
+
+
+@pytest.fixture
+def fake_client() -> FakeSignalHireClient:
+    return FakeSignalHireClient()
+
+
+@pytest.fixture
+def server(settings, store, registry, fake_client):
+    return create_server(
+        settings,
+        credential_provider=StubCredentials(),
+        registry=registry,
+        client=fake_client,
+        store=store,
+        auth_provider=None,
+    )
+
+
+@pytest.fixture
+async def client(server):
+    """In-memory MCP client — the pattern from the FastMCP testing docs."""
+    from fastmcp import Client
+
+    async with Client(server) as mcp_client:
+        yield mcp_client
+
+
+@pytest.fixture
+async def http(server):
+    """Drive the real ASGI app, including custom routes, without binding a port.
+
+    The FastMCP testing docs cover the in-memory Client but say nothing about
+    custom HTTP routes. Entering the Starlette lifespan and talking to the app
+    through an ASGI transport is what makes the callback endpoint — the most
+    important code in this package — testable end to end.
+
+    The lifespan runs inside its own task rather than directly in the fixture
+    body. MCP's streamable-HTTP manager opens an anyio task group, and a task
+    group must be exited by the task that entered it; pytest-asyncio sets up
+    and tears down async-generator fixtures in *different* tasks, which
+    otherwise fails teardown with "attempted to exit cancel scope in a
+    different task". Owning the lifespan in one long-lived task keeps entry and
+    exit together.
+    """
+    import asyncio
+
+    import httpx2
+
+    app = server.http_app(path="/mcp/")
+    started = asyncio.Event()
+    finish = asyncio.Event()
+    failure: list[BaseException] = []
+
+    async def own_lifespan() -> None:
+        try:
+            async with app.router.lifespan_context(app):
+                started.set()
+                await finish.wait()
+        except BaseException as exc:  # noqa: BLE001 - re-raised in the fixture
+            failure.append(exc)
+            started.set()
+
+    task = asyncio.create_task(own_lifespan())
+    await started.wait()
+    if failure:
+        raise failure[0]
+
+    transport = httpx2.ASGITransport(app=app)
+    try:
+        async with httpx2.AsyncClient(transport=transport, base_url="http://test") as c:
+            yield c
+    finally:
+        finish.set()
+        await task
+        if failure:
+            raise failure[0]

@@ -1,42 +1,26 @@
-# SignalHire MCP Server - Standalone Requirements
-# All dependencies needed for FastMCP Cloud deployment
+# SignalHire MCP Server — runtime dependencies
+#
+# Kept in sync with pyproject.toml, which is the source of truth. This file
+# exists for `pip install -r` on hosts without uv.
+#
+# Every pin is exact. fastmcp 4 is a prerelease, and pip/uv resolution that
+# allows prereleases will happily pull pydantic 2.14.0b1 and httpx 1.0.dev3 for
+# any loosely-specified package. Exact pins keep the prerelease surface to
+# fastmcp alone.
+#
+# FastMCP 4 uses httpx2, NOT httpx. Do not add httpx back — FastMCP raises
+# httpx2 exceptions, so `except httpx.ConnectError` becomes dead code that
+# silently stops catching anything.
+#
+# Install with:  uv pip install --prerelease=allow -r requirements.txt
+#            or: pip install --pre -r requirements.txt
 
-# Core async HTTP client
-httpx>=0.25.0
+fastmcp==4.0.0b2
+httpx2==2.10.0
+pydantic==2.13.4
+pydantic-settings==2.15.0
+python-dotenv==1.2.2
 
-# Data validation and models
-pydantic>=2.0.0
-pydantic-settings>=2.0.0
-email-validator>=2.0.0
-
-# Web framework for callback server
-fastapi>=0.100.0
-uvicorn>=0.20.0
-
-# Data processing and CSV export
-pandas>=2.0.0
-
-# CLI framework
-click>=8.1.0
-rich>=13.0.0
-
-# Configuration management
-python-dotenv>=1.0.0
-
-# Logging and monitoring
-structlog>=23.0.0
-
-# Async utilities
-asyncio-throttle>=1.0.0
-
-# MCP Server framework
-fastmcp>=2.0.0
-
-# Optional: Memory and storage (if needed)
-# mem0ai>=0.1.0
-# supabase>=2.0.0
-
-# Testing dependencies
-pytest>=8.0.0
-pytest-asyncio>=0.23.0
-pytest-cov>=4.1.0
+# Testing (install with: uv pip install --prerelease=allow -r requirements.txt)
+pytest==9.1.1
+pytest-asyncio==1.4.0
