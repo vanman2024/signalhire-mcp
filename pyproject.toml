@@ -44,9 +44,18 @@ packages = ["src/signalhire_mcp"]
 [tool.ruff]
 line-length = 100
 target-version = "py310"
+# Both roots are declared so first-party detection does not depend on what
+# happens to be installed. Without this, ruff inferred `signalhire_mcp` as
+# first-party locally (src/ layout on disk) and third-party in CI (resolved
+# from the synced venv), so `ruff check` passed here and failed there on the
+# same commit. Import classification must not vary by environment.
+src = ["src", "."]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["signalhire_mcp", "tests"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
