@@ -14,7 +14,6 @@ from signalhire_mcp.credentials.base import SignalHireCredential
 from signalhire_mcp.delivery.normalize import normalize_payload
 from tests.conftest import SAMPLE_CALLBACK
 
-
 # --- auth posture ---------------------------------------------------------
 
 

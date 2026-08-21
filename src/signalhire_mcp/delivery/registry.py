@@ -121,7 +121,8 @@ class TenantRegistry:
             return self._raw[tenant_id]
         except KeyError:
             raise UnknownTenantError(
-                f"Unknown tenant {tenant_id!r}. Configured: {', '.join(self.tenant_ids()) or 'none'}. "
+                f"Unknown tenant {tenant_id!r}. "
+                f"Configured: {', '.join(self.tenant_ids()) or 'none'}. "
                 "Refusing to fall back to the default tenant — that would file one "
                 "customer's revealed contacts under another."
             ) from None

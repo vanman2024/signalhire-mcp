@@ -15,7 +15,7 @@ from signalhire_mcp.delivery.registry import (
 )
 from signalhire_mcp.delivery.worker import DeliveryWorker
 from signalhire_mcp.inbox.models import EventState
-from tests.conftest import RecordingAdapter, SAMPLE_CALLBACK
+from tests.conftest import SAMPLE_CALLBACK, RecordingAdapter
 
 
 def _worker(settings, store, registry) -> DeliveryWorker:

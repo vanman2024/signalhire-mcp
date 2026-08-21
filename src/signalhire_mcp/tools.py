@@ -352,7 +352,9 @@ def register(mcp, runtime: Runtime) -> None:
         location: Annotated[
             list[str] | None, Field(description="One or more cities, states, or countries")
         ] = None,
-        company: Annotated[str | None, Field(description="Current company. Boolean supported")] = None,
+        company: Annotated[
+            str | None, Field(description="Current company. Boolean supported")
+        ] = None,
         keywords: Annotated[
             str | None, Field(description="Skills, education, bio. Boolean supported")
         ] = None,

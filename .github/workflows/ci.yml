@@ -1,0 +1,79 @@
+name: CI
+
+# Replaces the previous "Security Scan Pipeline", which invoked four scripts
+# that were never in this repository (scan-secrets.sh, scan-dependencies.sh,
+# scan-owasp.sh, generate-security-report.sh). It ran twice, in November 2025,
+# and failed both times. Everything below runs tools that actually exist.
+#
+# staging/** is included deliberately: the previous workflow's triggers did not
+# cover it, so the branch holding all active work was unverified even in
+# principle.
+
+on:
+  push:
+    branches: [main, master, develop, "staging/**"]
+  pull_request:
+    branches: [main, master, develop]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test (py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The declared floor in pyproject (>=3.10) and the version actually
+        # developed against. Testing only one of them tests half the contract.
+        python-version: ["3.10", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python ${{ matrix.python-version }}
+        run: uv python install ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        # --frozen so a drifted uv.lock fails here rather than silently
+        # resolving something different from what anyone runs locally.
+        run: uv sync --frozen --extra dev --python ${{ matrix.python-version }}
+
+      - name: Lint
+        run: uv run ruff check --output-format=github .
+
+      - name: Test
+        run: uv run pytest -q
+
+  audit:
+    name: dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Audit dependencies for known vulnerabilities
+        # fastmcp is pinned to a prerelease (4.0.0b2), so this is the only
+        # thing watching that surface for advisories.
+        #
+        # Audit the exported lock rather than the installed environment:
+        # --no-emit-project drops the local package (not on PyPI, so it would
+        # abort the run), and --no-deps stops pip-audit re-resolving a set the
+        # lock has already resolved exactly. requirements.txt is deliberately
+        # not used here -- it mirrors the pins by hand and can drift.
+        run: |
+          uv export --frozen --no-emit-project --no-dev --no-hashes             --format requirements-txt > /tmp/requirements-audit.txt
+          uv run --with pip-audit pip-audit             -r /tmp/requirements-audit.txt --no-deps --desc

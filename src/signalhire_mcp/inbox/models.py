@@ -109,7 +109,11 @@ class IntegrationEvent(BaseModel):
 
     def pending_adapters(self, configured: list[str]) -> list[str]:
         """Adapters that still need this event delivered to them."""
-        return [name for name in configured if not self.adapters.get(name, AdapterProgress(adapter=name)).succeeded]
+        return [
+            name
+            for name in configured
+            if not self.adapters.get(name, AdapterProgress(adapter=name)).succeeded
+        ]
 
     def schedule_retry(self, base_seconds: float, max_seconds: float) -> None:
         """Exponential backoff from the current attempt count."""
