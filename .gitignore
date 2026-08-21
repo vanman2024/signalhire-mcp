@@ -19,6 +19,15 @@
 *.key
 *.pem
 
+# ...but `*credential*` also matched the SOURCE package
+# src/signalhire_mcp/credentials/, so four modules were never committed and
+# a fresh clone could not import signalhire_mcp at all. Git cannot re-include
+# a file whose parent directory is excluded, so the directory is un-excluded
+# first and its contents second. These files are code -- the module that
+# defines redaction -- not secrets.
+!src/signalhire_mcp/credentials/
+!src/signalhire_mcp/credentials/**
+
 # ============================================
 # PRIVACY: the durable callback inbox
 # ============================================
