@@ -1,0 +1,64 @@
+# Durable project intent.
+#
+# This file records DECISIONS, not observations. Everything in .project-cache/
+# and .generated/ is rebuildable from the repository; this is not. If the cache
+# is deleted, this is what stops the next rebuild from re-guessing what this
+# project is.
+#
+# Written by project-baseline. Edit deliberately.
+
+name: signalhire-mcp
+profile: integration-project
+
+# Why this profile, so the decision is auditable rather than asserted.
+profile_rationale: >
+  Matches every integration-project detection signal: an MCP manifest
+  (fastmcp.json), provider adapters (src/signalhire_mcp/delivery/), and a
+  webhook handler (src/signalhire_mcp/routes.py). Headless — no human surface,
+  which is why S01 is not_applicable rather than missing.
+profile_confirmed: true
+profile_confirmed_by: project-baseline
+profile_confirmed_at_commit: 531e06c
+
+github_repo: vanman2024/signalhire-mcp
+default_branch: main
+
+# The environment contract this profile requires. Staging does not exist yet;
+# that gap is W001-03, not a redefinition of the contract.
+environments:
+  - development
+  - staging
+  - production
+
+# Deployment target. Decided 2026-08-17 by the user, and stated as a standing
+# rule: FastMCP Cloud (Prefect Horizon) is the host for every self-built MCP
+# server, not just this one. This closes baseline open question 4.
+#
+# It is recorded here rather than only in the spec because it is a decision,
+# and because it invalidates an existing path: deploy-to-droplet.sh and
+# install.sh are superseded, not alternatives.
+#
+# The decision has a cost that must not be lost: Horizon is managed and
+# autoscaled and redeploys on every push to main, while inbox/store.py is
+# correct only for a single writer on a persistent volume. That conflict is
+# W001-02 and it is the highest-severity open item in the project.
+deployment:
+  provider: fastmcp-cloud
+  platform: prefect-horizon
+  scope: all self-built MCP servers
+  decided_at: 2026-08-17
+  decided_by: user
+  supersedes:
+    - scripts/deploy-to-droplet.sh
+    - install.sh
+  staging_strategy: horizon branch previews   # W001-03
+  open_risk: W001-02   # file-backed inbox vs. ephemeral, multi-replica hosting
+
+baseline:
+  spec: specs/baseline.md
+  product_brief: specs/product-brief.md
+  status: draft            # -> agreed once the open questions are answered
+  # Answered so far: 4 (deployment target -> fastmcp-cloud).
+  # Outstanding: StaffHive component vs standalone product; is multi-tenancy
+  # real; PII retention policy; whether fastmcp stays pinned to 4.0.0b2.
+  migration_parent: R001

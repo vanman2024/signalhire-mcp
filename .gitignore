@@ -122,3 +122,9 @@ logs/
 *.tmp
 *.temp
 .cache/
+
+# ============================================
+# Dev Lifecycle (generated projections + local graph cache)
+# ============================================
+.project-cache/
+.generated/
