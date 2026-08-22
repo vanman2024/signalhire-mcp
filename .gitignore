@@ -133,7 +133,12 @@ logs/
 .cache/
 
 # ============================================
-# Dev Lifecycle (generated projections + local graph cache)
+# Dev Lifecycle
 # ============================================
+# Both are artifacts of the v3 Product Graph, which dev-lifecycle v4 deleted.
+# Kept ignored so a stale copy on any machine stays out of the repo. The
+# judgments that were worth keeping now live in .project/inventory.json,
+# which IS tracked -- a verdict nobody can see in a diff is one nobody
+# notices going wrong.
 .project-cache/
 .generated/

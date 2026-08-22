@@ -1,0 +1,143 @@
+{
+  "capabilities": {
+    "S01": {
+      "judged_at": "531e06cda64730c18f0ae9edc3caf24cbb0543c4",
+      "name": "Product Surfaces & Application Shell",
+      "source": "observed",
+      "status": "not_applicable",
+      "why": "Headless MCP server. S01 is the human application frame (navigation, shell, empty/loading states); there is no such surface. The interaction contract lives in the MCP tool/resource surface and is judged under S08/S17 and B1."
+    },
+    "S06": {
+      "judged_at": "531e06cda64730c18f0ae9edc3caf24cbb0543c4",
+      "name": "Domain Model Foundation",
+      "source": "observed",
+      "status": "complete",
+      "tests": [
+        "tests/test_inbox.py"
+      ],
+      "where": [
+        "src/signalhire_mcp/inbox/models.py"
+      ],
+      "why": "inbox/models.py defines RevealRequest and IntegrationEvent as explicit state machines; delivery/normalize.py gives a vendor-neutral profile shape. Pydantic throughout. 17 tests in test_inbox.py exercise the transitions."
+    },
+    "S08": {
+      "judged_at": "531e06cda64730c18f0ae9edc3caf24cbb0543c4",
+      "name": "Application / API Service Layer",
+      "source": "observed",
+      "status": "complete",
+      "tests": [
+        "tests/test_server.py"
+      ],
+      "where": [
+        "src/signalhire_mcp/server.py::create_server",
+        "src/signalhire_mcp/tools.py::register"
+      ],
+      "why": "server.py create_server() is the single composition root; tools.py registers 10 MCP tools; routes.py serves /signalhire/callback/{tenant} and /health; resources.py serves resources. Covered by test_server.py (25) and test_tools.py (17). The scanner reported NONE \u2014 it looks for HTTP frameworks and misses an MCP surface."
+    },
+    "S09": {
+      "judged_at": "531e06cda64730c18f0ae9edc3caf24cbb0543c4",
+      "name": "Database & Persistence",
+      "source": "observed",
+      "status": "partial",
+      "where": [
+        "src/signalhire_mcp/inbox/store.py::InboxStore"
+      ],
+      "why": "Durable persistence moves to StaffHive/Supabase per ADR-0001 option A. This repo becomes stateless. InboxStore remains the reference implementation for staffhive#188's webhook_events state machine, but is retired here (W001-02)."
+    },
+    "S15": {
+      "judged_at": "531e06cda64730c18f0ae9edc3caf24cbb0543c4",
+      "name": "Event & Webhook Architecture",
+      "source": "observed",
+      "status": "complete",
+      "tests": [
+        "tests/test_callback_route.py"
+      ],
+      "where": [
+        "src/signalhire_mcp/routes.py::signalhire_callback"
+      ],
+      "why": "Webhook RECEIPT moves to StaffHive per ADR-0001. This repo no longer terminates vendor webhooks. Was complete and correct; retired by an ownership decision, not by a defect."
+    },
+    "S16": {
+      "judged_at": "531e06cda64730c18f0ae9edc3caf24cbb0543c4",
+      "name": "Integration Framework",
+      "source": "observed",
+      "status": "complete",
+      "tests": [
+        "tests/test_delivery.py"
+      ],
+      "where": [
+        "src/signalhire_mcp/delivery/registry.py::TenantRegistry",
+        "src/signalhire_mcp/signalhire/client.py"
+      ],
+      "why": "Delivery adapters (WebhookAdapter, McpAdapter) retired here per ADR-0001 option A -- StaffHive persists canonically and runs its own targeted CATS sync via the CATS MCP adapter (staffhive#187). Design preserved in the ADR."
+    },
+    "S17": {
+      "judged_at": "531e06cda64730c18f0ae9edc3caf24cbb0543c4",
+      "name": "Public API / Developer Platform",
+      "source": "observed",
+      "status": "partial",
+      "why": "The MCP surface is the developer product and it is unusually well documented in place: server INSTRUCTIONS explain the credit model and the two-pool 402 trap, and bundled skills are served as MCP resources so a client learns the workflow without a local install. GAP: no versioned contract, no published schema, no changelog, no release \u2014 consumers cannot pin or detect a breaking change."
+    },
+    "S38": {
+      "judged_at": "8fae0781b26d91ea12a6ecef35c3d8352d8ed47f",
+      "name": "Security",
+      "source": "observed",
+      "status": "partial",
+      "where": [
+        "src/signalhire_mcp/auth/verifier.py",
+        "src/signalhire_mcp/credentials/base.py"
+      ],
+      "why": "pip-audit now runs on every push, watching the fastmcp 4.0.0b2 prerelease surface. Overbroad *credential* gitignore rule corrected -- it had excluded the credentials source package from the repo entirely. STILL PARTIAL: no SAST, and no PII retention policy for the durable inbox."
+    },
+    "S40": {
+      "judged_at": "531e06cda64730c18f0ae9edc3caf24cbb0543c4",
+      "name": "Reliability & Resilience",
+      "source": "observed",
+      "status": "complete",
+      "where": [
+        "src/signalhire_mcp/delivery/worker.py::DeliveryWorker"
+      ],
+      "why": "Retry with exponential backoff and jitter in the client honouring Retry-After; worker backoff capped at max_backoff_seconds; max_delivery_attempts then parks the event rather than dropping it, requeueable by hand; store recovers stuck events at startup; persist-before-ack. The failure modes were reasoned about explicitly."
+    },
+    "S41": {
+      "judged_at": "531e06cda64730c18f0ae9edc3caf24cbb0543c4",
+      "name": "Observability",
+      "source": "observed",
+      "status": "partial",
+      "where": [
+        "src/signalhire_mcp/logging_setup.py"
+      ],
+      "why": "logging_setup.py gives structured stderr logging with correlation IDs and a run_id filter; observability.py adds TimingMiddleware and documents at length why caching, rate limiting and response limiting are deliberately absent; /health reports inbox backlog and worker state rather than a bare 200. GAP: no metrics export, no tracing (FastMCP's OTel support is not wired), no alerting on the parked-event count."
+    },
+    "S42": {
+      "judged_at": "531e06cda64730c18f0ae9edc3caf24cbb0543c4",
+      "name": "Infrastructure & Runtime Platform",
+      "source": "observed",
+      "status": "partial",
+      "why": "fastmcp.json declares the runtime, entrypoint and transport, and its interpolation traps are documented in place. Provider is now DECIDED: FastMCP Cloud (Prefect Horizon), which builds from the GitHub repo and reads requirements.txt/pyproject -- both present. GAP: no declared durable storage for data_dir (W001-02), and deploy-to-droplet.sh remains as a superseded parallel path that should be retired."
+    },
+    "S43": {
+      "judged_at": "8fae0781b26d91ea12a6ecef35c3d8352d8ed47f",
+      "name": "Environments, CI/CD & Delivery",
+      "source": "observed",
+      "status": "partial",
+      "why": "CI is real and green as of W001-01: ci.yml runs pytest + ruff on 3.10/3.13, uv sync --frozen, and pip-audit on the exported lock, triggered on push/PR including staging/**. First passing run in repo history. STILL PARTIAL: no staging environment (W001-03), no release path (W001-04), promotion is still local -> production."
+    },
+    "S44": {
+      "judged_at": "8fae0781b26d91ea12a6ecef35c3d8352d8ed47f",
+      "name": "Testing & Quality Architecture",
+      "source": "observed",
+      "status": "complete",
+      "why": "86 tests pass and now gate every push and PR on two Python versions. ruff enforced. The suite was entirely dead until tests/__init__.py resolved the caio namespace shadow."
+    },
+    "S45": {
+      "judged_at": "531e06cda64730c18f0ae9edc3caf24cbb0543c4",
+      "name": "Releases & Versioning",
+      "source": "observed",
+      "status": "missing",
+      "why": "pyproject and __init__ both declare 2.0.0, but there are zero git tags, zero GitHub releases, no CHANGELOG and no release workflow. Nothing records what 2.0.0 contains or how it differs from what a consumer already installed."
+    }
+  },
+  "journeys": {},
+  "version": 1
+}

@@ -1,64 +1,71 @@
-# Durable project intent.
+# Durable project intent — conforms to dev-lifecycle v4
+# schemas/project-config.schema.json.
 #
-# This file records DECISIONS, not observations. Everything in .project-cache/
-# and .generated/ is rebuildable from the repository; this is not. If the cache
-# is deleted, this is what stops the next rebuild from re-guessing what this
-# project is.
+# This file records DECISIONS, not observations. Capability verdicts live in
+# .project/inventory.json; everything else is asked of a live source at the
+# time of asking. Nothing here is a cache.
 #
-# Written by project-baseline. Edit deliberately.
+# Migrated from the v3 Product Graph on 2026-08-22, when dev-lifecycle v4
+# deleted it. The 14 capability verdicts came across via
+# `devctl inventory --migrate`.
 
 name: signalhire-mcp
 profile: integration-project
+confirmed_by_user: true
 
-# Why this profile, so the decision is auditable rather than asserted.
-profile_rationale: >
-  Matches every integration-project detection signal: an MCP manifest
-  (fastmcp.json), provider adapters (src/signalhire_mcp/delivery/), and a
-  webhook handler (src/signalhire_mcp/routes.py). Headless — no human surface,
-  which is why S01 is not_applicable rather than missing.
-profile_confirmed: true
-profile_confirmed_by: project-baseline
-profile_confirmed_at_commit: 531e06c
+github:
+  repo: vanman2024/signalhire-mcp
+  default_branch: main
 
-github_repo: vanman2024/signalhire-mcp
-default_branch: main
-
-# The environment contract this profile requires. Staging does not exist yet;
-# that gap is W001-03, not a redefinition of the contract.
+# Names only. Staging does not exist yet; that gap is tracked as work, not as
+# a redefinition of the contract.
 environments:
   - development
   - staging
   - production
 
-# Deployment target. Decided 2026-08-17 by the user, and stated as a standing
-# rule: FastMCP Cloud (Prefect Horizon) is the host for every self-built MCP
-# server, not just this one. This closes baseline open question 4.
-#
-# It is recorded here rather than only in the spec because it is a decision,
-# and because it invalidates an existing path: deploy-to-droplet.sh and
-# install.sh are superseded, not alternatives.
-#
-# The decision has a cost that must not be lost: Horizon is managed and
-# autoscaled and redeploys on every push to main, while inbox/store.py is
-# correct only for a single writer on a persistent volume. That conflict is
-# W001-02 and it is the highest-severity open item in the project.
 deployment:
   provider: fastmcp-cloud
   platform: prefect-horizon
   scope: all self-built MCP servers
-  decided_at: 2026-08-17
-  decided_by: user
-  supersedes:
-    - scripts/deploy-to-droplet.sh
-    - install.sh
-  staging_strategy: horizon branch previews   # W001-03
-  open_risk: W001-02   # file-backed inbox vs. ephemeral, multi-replica hosting
+  staging_strategy: horizon branch previews
 
-baseline:
-  spec: specs/baseline.md
-  product_brief: specs/product-brief.md
-  status: draft            # -> agreed once the open questions are answered
-  # Answered so far: 4 (deployment target -> fastmcp-cloud).
-  # Outstanding: StaffHive component vs standalone product; is multi-tenancy
-  # real; PII retention policy; whether fastmcp stays pinned to 4.0.0b2.
-  migration_parent: R001
+decisions:
+  - decision: >
+      Profile is integration-project (Integration / MCP Server).
+    why: >
+      Matches every detection signal: an MCP manifest (fastmcp.json), provider
+      adapters (src/signalhire_mcp/delivery/), and a webhook handler
+      (src/signalhire_mcp/routes.py). Headless — no human surface, which is why
+      S01 is not_applicable rather than missing.
+
+  - decision: >
+      FastMCP Cloud (Prefect Horizon) is the deployment target, for this and
+      every self-built MCP server.
+    why: >
+      Removes hand-operated hosts and brings CI/CD, branch previews, rollbacks
+      and OAuth. Decided by the user 2026-08-17.
+    supersedes: scripts/deploy-to-droplet.sh and install.sh
+    open_risk: >
+      Horizon is managed, autoscaled and redeploys on every push to main, and
+      documents neither a persistent volume nor that it routes any path other
+      than /mcp. The file-backed inbox required both. Resolved by ADR-0001,
+      which moves the receive path out entirely.
+
+  - decision: >
+      MCP is a surface, not the plumbing. Inbound vendor webhooks and
+      app-facing calls are ordinary HTTP that belongs below both front doors.
+      StaffHive/Supabase owns the durable callback inbox; this repo becomes a
+      stateless, agent-facing surface.
+    why: >
+      Recorded in docs/adr/0001-mcp-surface-vs-integration-plumbing.md and in
+      vanman2024/staffhive#188, which decides StaffHive/Supabase is canonical
+      persistence. Two equivalent durable inboxes had been designed
+      independently; building both was the real risk.
+    supersedes: >
+      The single-process collapse in 531e06c, which was correct for a droplet
+      and wrong for FastMCP Cloud.
+    open_risk: >
+      S15 and S16 were assessed complete and are retired here by an ownership
+      decision, not a defect. Result-reading tools in tools.py have nothing to
+      read once the store leaves; see signalhire-mcp#4.
