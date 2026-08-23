@@ -1,6 +1,7 @@
 # ADR-0001 — MCP is a surface, not the plumbing
 
-- **Status:** accepted (2026-08-17) — ownership resolved to option A
+- **Status:** **partially superseded (2026-08-22).** The decision *rule* stands. The
+  **ownership choice (option A) does not** — see §Ownership.
 - **Date:** 2026-08-17
 - **Context repos:** `signalhire-mcp`, `staffhive` (issues #188, #196, #187)
 - **Supersedes in part:** the single-process collapse in `531e06c`
@@ -62,59 +63,63 @@ If a server ever genuinely needs to serve `/mcp` **and** a real REST API from on
 FastMCP mounts inside a FastAPI app — but that is not a FastMCP Cloud deployment, and the
 exception belongs in the policy rather than being broken quietly.
 
-## Ownership — resolved
+## Ownership — REOPENED 2026-08-22
 
-**StaffHive owns the durable callback inbox** (option A, chosen 2026-08-17), following
-`staffhive#188` as written: *"StaffHive/Supabase is canonical persistence."*
+Option A (StaffHive owns the durable callback inbox; this repo becomes a pure
+agent-facing surface) was chosen on 2026-08-17 and is **withdrawn before any code
+was written against it.**
 
-SignalHire posts directly to StaffHive. StaffHive inserts the raw payload into
-`webhook_events` **before** returning 2xx, then correlates and persists to `candidates` in a
-retryable worker, then emits `candidate.contacts.enriched`, then optionally runs a targeted
-CATS sync. No intermediate service, no extra hop.
+It rested on an assumption this ADR named and did not verify: that signalhire-mcp
+is a StaffHive component. §Open originally said option C should be revisited "only
+if a second consumer appears that is not StaffHive — which is the still-open
+'StaffHive component or standalone product?' question." That question has now been
+answered, the other way:
 
-Two rejected alternatives, recorded so they are not silently revisited:
+> SignalHire is **one integration among many**. The system connects to it by API
+> key, structured like any other integration, under an organizational hierarchy
+> that owns the list. It is deliberately **not** wired to StaffHive.
 
-- **B — `signalhire-mcp` owns it.** Rejected: contradicts #188's canonical decision and makes
-  the StaffHive candidate row derivative of an integration service.
-- **C — split by concern**, with this repo owning vendor-facing durability and delivering via
-  `WebhookAdapter`. Genuinely defensible and it preserves working code, but it reintroduces the
-  extra hop and a second store. Revisit only if a second consumer appears that is not StaffHive
-  — which is the still-open "StaffHive component or standalone product?" question in
-  `specs/product-brief.md`.
+Under that answer option A is wrong in a specific way: it makes this repo's value
+conditional on one consumer, and it retires the very capabilities (durable
+vendor-facing receipt, pluggable delivery, per-tenant credentials) that let it be
+a general integration rather than a point-to-point pipe.
 
-### What this costs, stated plainly
+**Option C is the shape that matches** — this repo owns vendor-facing durability
+(the 10-second budget, retries, dedup, the raw payload) and stays
+consumer-neutral; whatever consumes it owns its own canonical persistence. The
+`TenantRegistry` / `credential_for` / `Adapter` seam already implements this at
+the single-integration level.
 
-Part of `531e06c` was built for a deployment model now retired. `InboxStore`, `delivery/` and
-the `routes.py` callback handler become redundant *in this repo*. That is roughly the durable
-half of the refactor. The design is not wasted — `staffhive#188` specifies the same state
-machine, and this implementation is the reference for it.
+Nothing is retired. `InboxStore`, `delivery/` and the callback route stay.
 
-### The consequence that follows, and is not yet decided
+### Still true, and unaffected
 
-`tools.py` currently reads results back through the store: `get_reveal_results`,
-`check_reveal_status`, `list_requests`, `list_failed_events`, `requeue_event`. With the store
-gone from this repo, **those tools have nothing to read.** A stateless `signalhire-mcp` can
-search, submit a reveal, and check credits — all synchronous — but cannot answer "what came
-back," because the answer now lives in StaffHive.
+The decision *rule* is untouched, and staffhive#188's fix stands on its own:
 
-Three ways out, to be decided before W001-02 finishes:
+- MCP is a surface for models; app-facing calls and inbound vendor webhooks are
+  ordinary plumbing below both front doors.
+- **Persist before acknowledge.** A 2xx to a vendor promises the payload is safe.
+  This is why staffhive#203 is right regardless of who owns what — StaffHive's own
+  receiver was acknowledging before persisting, which destroyed billed reveals.
+  That fix is about StaffHive's handler, not about this repo's ownership.
+- Keep MCP servers pure enough that FastMCP Cloud fits. Still open, and now
+  harder: if this repo keeps the receive path, the two FastMCP Cloud blockers
+  (no documented persistent volume, no documented non-`/mcp` ingress) come back
+  and must be solved rather than sidestepped.
 
-1. Retire those tools here; agents read results through StaffHive's own MCP surface.
-   Keeps this server consumer-neutral. Most consistent with the decision.
-2. Keep them, reading from StaffHive over the network. Couples this server to StaffHive and
-   contradicts `config.py`'s stated neutrality.
-3. Keep them as thin pass-throughs over a StaffHive-owned API, neutral by configuration.
+### What is now blocking
 
-Option 1 is the default unless someone argues otherwise.
+The prerequisite is the **organizational hierarchy** that owns a list of
+integrations — the level above `TenantRegistry`. Until its shape is known, where
+the inbox lives and how a credential is resolved are premature questions.
 
 ## Consequences
 
-- `routes.py`'s callback handler leaves the MCP server; `/health` stays.
-- `tools.py` is untouched — it already only talks to the store.
-- `InboxStore` grows a network backend behind its existing interface, or is retired (see §Open).
-- `deploy-to-droplet.sh` and `install.sh` are superseded.
-- The reason for the split is recorded here so nobody "simplifies" it back into one process in
-  six months without reading why.
+- `deploy-to-droplet.sh` and `install.sh` are superseded by the FastMCP Cloud decision.
+- The receive path **stays** pending the organizational-hierarchy design.
+- The FastMCP Cloud storage and ingress questions are unresolved again, and are now
+  the real blockers rather than an ownership question.
+- The reason both options were considered is recorded here so nobody re-derives it.
 
 ## References
 

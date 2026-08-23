@@ -32,20 +32,20 @@
         "src/signalhire_mcp/server.py::create_server",
         "src/signalhire_mcp/tools.py::register"
       ],
-      "why": "server.py create_server() is the single composition root; tools.py registers 10 MCP tools; routes.py serves /signalhire/callback/{tenant} and /health; resources.py serves resources. Covered by test_server.py (25) and test_tools.py (17). The scanner reported NONE \u2014 it looks for HTTP frameworks and misses an MCP surface."
+      "why": "server.py create_server() is the single composition root; tools.py registers 10 MCP tools; routes.py serves /signalhire/callback/{tenant} and /health; resources.py serves resources. Covered by test_server.py (25) and test_tools.py (17). The scanner reported NONE — it looks for HTTP frameworks and misses an MCP surface."
     },
     "S09": {
-      "judged_at": "531e06cda64730c18f0ae9edc3caf24cbb0543c4",
+      "judged_at": "5ef12afd4b7371bfa6dd500dc75b6c0674c2a85d",
       "name": "Database & Persistence",
       "source": "observed",
       "status": "partial",
       "where": [
         "src/signalhire_mcp/inbox/store.py::InboxStore"
       ],
-      "why": "Durable persistence moves to StaffHive/Supabase per ADR-0001 option A. This repo becomes stateless. InboxStore remains the reference implementation for staffhive#188's webhook_events state machine, but is retired here (W001-02)."
+      "why": "inbox/store.py is a genuinely durable file-backed store: atomic writes (tmp + os.replace + fsync), crash recovery via recover_stuck_events(), path-traversal protection, per-state directory routing, 17 tests. GAP: correct for a single writer on a persistent volume -- its own docstring says so -- and FastMCP Cloud guarantees neither. InboxStore is the one class to reimplement; nothing above it knows how storage works, so the seam is clean. NOT retired: the earlier ADR-0001 option A note assumed this repo becomes a StaffHive component, which is not the direction (2026-08-22)."
     },
     "S15": {
-      "judged_at": "531e06cda64730c18f0ae9edc3caf24cbb0543c4",
+      "judged_at": "5ef12afd4b7371bfa6dd500dc75b6c0674c2a85d",
       "name": "Event & Webhook Architecture",
       "source": "observed",
       "status": "complete",
@@ -55,10 +55,10 @@
       "where": [
         "src/signalhire_mcp/routes.py::signalhire_callback"
       ],
-      "why": "Webhook RECEIPT moves to StaffHive per ADR-0001. This repo no longer terminates vendor webhooks. Was complete and correct; retired by an ownership decision, not by a defect."
+      "why": "Single-process ASGI app serves /mcp/, POST /signalhire/callback/{tenant_id} and /health on one port. The callback route only persists -- never normalises, never calls an adapter, never touches the network -- because the vendor allows 10 seconds and then discards the payload permanently. Persist before acknowledge; 500 on persist failure to earn back vendor retries; crash recovery at startup. This is the capability that makes SignalHire usable as an integration at all, and it stays here."
     },
     "S16": {
-      "judged_at": "531e06cda64730c18f0ae9edc3caf24cbb0543c4",
+      "judged_at": "5ef12afd4b7371bfa6dd500dc75b6c0674c2a85d",
       "name": "Integration Framework",
       "source": "observed",
       "status": "complete",
@@ -69,14 +69,14 @@
         "src/signalhire_mcp/delivery/registry.py::TenantRegistry",
         "src/signalhire_mcp/signalhire/client.py"
       ],
-      "why": "Delivery adapters (WebhookAdapter, McpAdapter) retired here per ADR-0001 option A -- StaffHive persists canonically and runs its own targeted CATS sync via the CATS MCP adapter (staffhive#187). Design preserved in the ADR."
+      "why": "Pluggable Adapter protocol with an idempotent contract; WebhookAdapter and McpAdapter are concrete implementations; TenantRegistry routes per tenant with per-tenant credentials (BYOK) and secrets referenced by env-var name. Adding a delivery destination requires no change to the receive path -- the single most valuable property this codebase has, and the reason it generalises to 'one integration among many' rather than a point-to-point pipe."
     },
     "S17": {
       "judged_at": "531e06cda64730c18f0ae9edc3caf24cbb0543c4",
       "name": "Public API / Developer Platform",
       "source": "observed",
       "status": "partial",
-      "why": "The MCP surface is the developer product and it is unusually well documented in place: server INSTRUCTIONS explain the credit model and the two-pool 402 trap, and bundled skills are served as MCP resources so a client learns the workflow without a local install. GAP: no versioned contract, no published schema, no changelog, no release \u2014 consumers cannot pin or detect a breaking change."
+      "why": "The MCP surface is the developer product and it is unusually well documented in place: server INSTRUCTIONS explain the credit model and the two-pool 402 trap, and bundled skills are served as MCP resources so a client learns the workflow without a local install. GAP: no versioned contract, no published schema, no changelog, no release — consumers cannot pin or detect a breaking change."
     },
     "S38": {
       "judged_at": "8fae0781b26d91ea12a6ecef35c3d8352d8ed47f",

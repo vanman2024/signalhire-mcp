@@ -55,17 +55,18 @@ decisions:
   - decision: >
       MCP is a surface, not the plumbing. Inbound vendor webhooks and
       app-facing calls are ordinary HTTP that belongs below both front doors.
-      StaffHive/Supabase owns the durable callback inbox; this repo becomes a
-      stateless, agent-facing surface.
+      The ownership half — who holds the durable callback inbox — was decided
+      for StaffHive on 2026-08-17 and REOPENED on 2026-08-22. Nothing retired.
     why: >
-      Recorded in docs/adr/0001-mcp-surface-vs-integration-plumbing.md and in
-      vanman2024/staffhive#188, which decides StaffHive/Supabase is canonical
-      persistence. Two equivalent durable inboxes had been designed
-      independently; building both was the real risk.
+      Recorded in docs/adr/0001-mcp-surface-vs-integration-plumbing.md. The
+      rule stands. The ownership choice assumed this repo is a StaffHive
+      component; it is not — SignalHire is one integration among many, reached
+      by API key under an organizational hierarchy that owns the list.
     supersedes: >
       The single-process collapse in 531e06c, which was correct for a droplet
       and wrong for FastMCP Cloud.
     open_risk: >
-      S15 and S16 were assessed complete and are retired here by an ownership
-      decision, not a defect. Result-reading tools in tools.py have nothing to
-      read once the store leaves; see signalhire-mcp#4.
+      Blocked on the organizational hierarchy — the level above TenantRegistry
+      that owns a list of integrations. Until that exists, the two FastMCP
+      Cloud blockers stand: no documented persistent volume, and no documented
+      non-/mcp ingress. See signalhire-mcp#4.
