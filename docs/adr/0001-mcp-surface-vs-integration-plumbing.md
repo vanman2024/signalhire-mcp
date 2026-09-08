@@ -102,10 +102,12 @@ The decision *rule* is untouched, and staffhive#188's fix stands on its own:
   This is why staffhive#203 is right regardless of who owns what — StaffHive's own
   receiver was acknowledging before persisting, which destroyed billed reveals.
   That fix is about StaffHive's handler, not about this repo's ownership.
-- Keep MCP servers pure enough that FastMCP Cloud fits. Still open, and now
-  harder: if this repo keeps the receive path, the two FastMCP Cloud blockers
-  (no documented persistent volume, no documented non-`/mcp` ingress) come back
-  and must be solved rather than sidestepped.
+- Keep MCP servers pure enough that FastMCP Cloud fits. **Answered by ADR-0002
+  (2026-09-07), and worse than stated here.** These two blockers were written as
+  *undocumented* capabilities; the platform documentation says they are
+  *unsupported*. Custom routes do not route at all, and the filesystem is
+  ephemeral with no instance affinity. If this repo keeps the receive path, it
+  cannot be a Horizon deployment.
 
 ### What is now blocking
 
@@ -117,8 +119,10 @@ the inbox lives and how a credential is resolved are premature questions.
 
 - `deploy-to-droplet.sh` and `install.sh` are superseded by the FastMCP Cloud decision.
 - The receive path **stays** pending the organizational-hierarchy design.
-- The FastMCP Cloud storage and ingress questions are unresolved again, and are now
-  the real blockers rather than an ownership question.
+- ~~The FastMCP Cloud storage and ingress questions are unresolved again~~ —
+  **resolved by ADR-0002.** They are not open questions but platform limits: a
+  Horizon deployment cannot serve the callback route or hold the inbox. The receive
+  path must leave a Horizon deployment regardless of who owns it.
 - The reason both options were considered is recorded here so nobody re-derives it.
 
 ## References
